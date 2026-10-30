@@ -44,7 +44,7 @@ How the app stays inside the free limits of the APIs it calls. The limit that bi
 
 - **Routing:** one call per search returns all three alternatives. A 1-hour cache keyed by origin and destination avoids a second call when the load weight or rest breaks change and when the heatmap loads. If the provider uses departure time for traffic, the departure is part of the key too. The provider's terms must allow this cache.
 - **Geocoding:** autocomplete is what costs calls. Requests wait 300 ms after the last keystroke, need at least 3 characters, cancel any earlier request still in flight and search only the US.
-- **Keys:** routing and geocoding keys live only in the backend, which proxies those calls. The basemap key is public by nature, so it is restricted by domain.
+- **Keys:** routing and geocoding keys live only in the backend, which proxies those calls. The basemap (OpenFreeMap) needs no key.
 - **Provider:** the routing provider is still open (Mapbox or TomTom). This plan works with either.
 
 ## Expected usage
