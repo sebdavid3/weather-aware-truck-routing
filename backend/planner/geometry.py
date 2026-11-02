@@ -83,3 +83,57 @@ def interpolate(xs: Sequence[float], ys: Sequence[float], x: float) -> float:
     span = xs[i + 1] - xs[i]
     fraction = (x - xs[i]) / span if span else 0.0
     return ys[i] + (ys[i + 1] - ys[i]) * fraction
+
+
+def simplify(points: Sequence[LatLon], tolerance_m: float) -> list[int]:
+    """Indices of the points Douglas-Peucker keeps, always including both ends.
+
+    Distances use a local equirectangular projection, accurate enough at the
+    tolerances a map line needs.
+    """
+    if len(points) < 3:
+        return list(range(len(points)))
+    lat0 = math.radians(sum(lat for lat, _ in points) / len(points))
+    scale_x = math.cos(lat0) * math.pi / 180 * EARTH_RADIUS_M
+    scale_y = math.pi / 180 * EARTH_RADIUS_M
+    xy = [(lon * scale_x, lat * scale_y) for lat, lon in points]
+
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(points) - 1)]
+    while stack:
+        first, last = stack.pop()
+        (x1, y1), (x2, y2) = xy[first], xy[last]
+        dx, dy = x2 - x1, y2 - y1
+        length = math.hypot(dx, dy)
+        farthest, farthest_d = -1, tolerance_m
+        for i in range(first + 1, last):
+            x, y = xy[i]
+            if length:
+                d = abs(dy * x - dx * y + x2 * y1 - y2 * x1) / length
+            else:
+                d = math.hypot(x - x1, y - y1)
+            if d > farthest_d:
+                farthest, farthest_d = i, d
+        if farthest >= 0:
+            keep[farthest] = True
+            stack += [(first, farthest), (farthest, last)]
+    return [i for i, kept in enumerate(keep) if kept]
+
+
+def slice_between(
+    points: Sequence[LatLon], distances_m: Sequence[float], start_m: float, end_m: float
+) -> list[LatLon]:
+    """The part of a line between two distances along it, with interpolated ends."""
+    inside = [p for p, d in zip(points, distances_m, strict=True) if start_m < d < end_m]
+    return [
+        _point_at(points, distances_m, start_m),
+        *inside,
+        _point_at(points, distances_m, end_m),
+    ]
+
+
+def _point_at(points: Sequence[LatLon], distances_m: Sequence[float], distance_m: float) -> LatLon:
+    lat = interpolate(distances_m, [p[0] for p in points], distance_m)
+    lon = interpolate(distances_m, [p[1] for p in points], distance_m)
+    return lat, lon

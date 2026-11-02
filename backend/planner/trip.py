@@ -64,6 +64,10 @@ class TravelTimeProfile:
     def time_at(self, distance_m: float) -> float:
         return interpolate(self._distances_m, self._times_s, distance_m)
 
+    def distance_at(self, time_s: float) -> float:
+        """Where the truck is after `time_s` of driving; the inverse of time_at."""
+        return interpolate(self._times_s, self._distances_m, time_s)
+
 
 def place_checkpoints(
     polyline: Polyline, interval_miles: int, profile: TravelTimeProfile
