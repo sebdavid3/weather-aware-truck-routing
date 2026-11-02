@@ -4,8 +4,6 @@ docs/api-usage.md explains the quota strategy (cells, cache, batches, errors)
 and docs/weather-risk-decisions.md which variables and hours a checkpoint uses.
 """
 
-import logging
-import time
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,8 +16,7 @@ from django.core.cache import BaseCache
 from django.core.cache import cache as default_cache
 
 from planner.risk import Conditions
-
-logger = logging.getLogger(__name__)
+from planner.upstream import UpstreamFailed, get_with_retry
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 CELLS_PER_DEGREE = 20  # 0.05° cells, about 5.5 km on a side.
@@ -245,27 +242,21 @@ class OpenMeteoClient:
         return blocks
 
     def _get(self, params: dict[str, str]) -> httpx.Response:
-        """GET with one retry for timeouts and server errors; never retries a 429."""
-        problem = ""
-        for attempt in range(2):
-            try:
-                response = self._http.get(OPEN_METEO_URL, params=params)
-            except httpx.TransportError as exc:
-                problem = type(exc).__name__
-            else:
-                if response.status_code == 429:
-                    raise _rate_limited(response)
-                if response.is_success:
-                    return response
-                if response.status_code < 500:
-                    raise WeatherUnavailable(
-                        f"Open-Meteo rejected the request: {_reason(response)}"
-                    )
-                problem = f"HTTP {response.status_code}"
-            logger.warning("Open-Meteo request failed (attempt %d): %s", attempt + 1, problem)
-            if attempt == 0:
-                time.sleep(self._retry_delay_s)
-        raise WeatherUnavailable(f"Open-Meteo failed twice: {problem}")
+        try:
+            response = get_with_retry(
+                self._http,
+                OPEN_METEO_URL,
+                params,
+                service="Open-Meteo",
+                retry_delay_s=self._retry_delay_s,
+            )
+        except UpstreamFailed as exc:
+            raise WeatherUnavailable(str(exc)) from exc
+        if response.status_code == 429:
+            raise _rate_limited(response)
+        if not response.is_success:
+            raise WeatherUnavailable(f"Open-Meteo rejected the request: {_reason(response)}")
+        return response
 
 
 def _day_blocks(cell: Cell, hourly: dict) -> dict[tuple[Cell, date], DayBlock]:

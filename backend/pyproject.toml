@@ -7,6 +7,7 @@ dependencies = [
     "djangorestframework>=3.18.3",
     "httpx>=0.28.1",
     "python-dotenv>=1.2.4",
+    "timezonefinder>=9.2.0",
 ]
 
 [dependency-groups]
