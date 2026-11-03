@@ -5,9 +5,11 @@ requires-python = ">=3.13"
 dependencies = [
     "django>=6.1.2",
     "djangorestframework>=3.18.3",
+    "gunicorn>=26.2.0",
     "httpx>=0.28.1",
     "python-dotenv>=1.2.4",
     "timezonefinder>=9.2.0",
+    "whitenoise>=6.12.0",
 ]
 
 [dependency-groups]

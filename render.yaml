@@ -1,0 +1,14 @@
+# Render Blueprint: one Docker web service for the API and the frontend.
+services:
+  - type: web
+    name: weather-aware-truck-routing
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        value: .onrender.com
+      - key: TOMTOM_API_KEY
+        sync: false

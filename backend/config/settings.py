@@ -34,8 +34,18 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.middleware.common.CommonMiddleware",
 ]
+
+# In production Django also serves the built frontend, so the app and its API
+# share one origin and no CORS setup is needed. In development Vite serves it.
+FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
+WHITENOISE_ROOT = FRONTEND_DIST if FRONTEND_DIST.is_dir() else None
+WHITENOISE_INDEX_FILE = True
+WHITENOISE_MAX_AGE = 3600
+# Hosting platforms terminate HTTPS at their proxy.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 ROOT_URLCONF = "config.urls"
 
