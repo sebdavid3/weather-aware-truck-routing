@@ -2,6 +2,7 @@ import Box from '@mui/material/Box'
 import {
   LngLatBounds,
   Map as MapLibreMap,
+  Marker,
   NavigationControl,
   Popup,
   setWorkerUrl,
@@ -13,6 +14,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { useEffect, useRef, useState } from 'react'
 import type { Heatmap, LonLat, TripPlan } from '../api'
+import type { MapLayers } from '../components/LayerToggles'
 import { formatClock, formatTime } from '../format'
 import { LEVEL_LABEL } from '../risk'
 import {
@@ -28,6 +30,7 @@ import {
   stopFeatures,
   truckFeatures,
 } from './layers'
+import { labelAnchor, placePin, routeLabel, setLabelSelected } from './markers'
 
 // MapLibre finds its worker next to its own module, which breaks once Vite
 // bundles it; pointing at the file Vite emits fixes dev and production builds.
@@ -41,6 +44,12 @@ const CONTINENTAL_US: LngLatBoundsLike = [
   [-66, 50],
 ]
 
+// Panning stops at North America; the app plans US trips only.
+const NORTH_AMERICA: LngLatBoundsLike = [
+  [-172, 5],
+  [-40, 75],
+]
+
 type Props = {
   plan: TripPlan | null
   heatmap: Heatmap | null
@@ -48,12 +57,25 @@ type Props = {
   selectedRoute: string
   focus: { position: LonLat; key: number } | null
   onSelectRoute: (name: string) => void
+  places: { origin: string; destination: string } | null
+  layers: MapLayers
 }
 
-export function TripMap({ plan, heatmap, hour, selectedRoute, focus, onSelectRoute }: Props) {
+export function TripMap({
+  plan,
+  heatmap,
+  hour,
+  selectedRoute,
+  focus,
+  onSelectRoute,
+  places,
+  layers: shown,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const [ready, setReady] = useState(false)
+  const labelsRef = useRef<{ name: string; marker: Marker }[]>([])
+  const pinsRef = useRef<Marker[]>([])
   // Handlers registered once at load read the latest props through these refs.
   const planRef = useRef(plan)
   const onSelectRef = useRef(onSelectRoute)
@@ -67,6 +89,12 @@ export function TripMap({ plan, heatmap, hour, selectedRoute, focus, onSelectRou
       container: containerRef.current!,
       style: BASEMAP_STYLE,
       bounds: CONTINENTAL_US,
+      maxBounds: NORTH_AMERICA,
+      renderWorldCopies: false,
+      // A planner has no use for a tilted or rotated map; it only makes routes harder to read.
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
       attributionControl: {
         compact: true,
         customAttribution:
@@ -75,8 +103,11 @@ export function TripMap({ plan, heatmap, hour, selectedRoute, focus, onSelectRou
     })
     mapRef.current = map
     map.addControl(new NavigationControl({ showCompass: false }), 'top-right')
+    map.touchZoomRotate.disableRotation()
+    map.keyboard.disableRotation()
 
     map.on('load', () => {
+      quietBasemap(map)
       for (const source of Object.values(SOURCES)) {
         map.addSource(source, { type: 'geojson', data: empty() })
       }
@@ -114,8 +145,40 @@ export function TripMap({ plan, heatmap, hour, selectedRoute, focus, onSelectRou
     for (const route of plan.routes) {
       for (const segment of route.segments) for (const point of segment.coordinates) bounds.extend(point)
     }
-    map.fitBounds(bounds, { padding: { top: 60, bottom: 180, left: 60, right: 60 }, duration: 800 })
+    map.fitBounds(bounds, { padding: { top: 80, bottom: 220, left: 200, right: 120 }, duration: 800 })
   }, [plan, ready])
+
+  // Route summary tickets and the two place pins, rebuilt for each new plan.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    for (const { marker } of labelsRef.current) marker.remove()
+    for (const pin of pinsRef.current) pin.remove()
+    labelsRef.current = []
+    pinsRef.current = []
+    if (!plan) return
+    labelsRef.current = plan.routes.map((route) => {
+      const element = routeLabel(route, route.name === plan.recommended, () =>
+        onSelectRef.current(route.name),
+      )
+      const marker = new Marker({ element, anchor: 'left', offset: [12, 0] })
+        .setLngLat(labelAnchor(route))
+        .addTo(map)
+      return { name: route.name, marker }
+    })
+    const first = plan.routes[0]
+    const lastSegment = first.segments[first.segments.length - 1]
+    if (places) {
+      pinsRef.current = [
+        new Marker({ element: placePin(places.origin, 'origin'), anchor: 'left', offset: [-7, 0] })
+          .setLngLat(first.segments[0].coordinates[0])
+          .addTo(map),
+        new Marker({ element: placePin(places.destination, 'destination'), anchor: 'left', offset: [-7, 0] })
+          .setLngLat(lastSegment.coordinates[lastSegment.coordinates.length - 1])
+          .addTo(map),
+      ]
+    }
+  }, [plan, places, ready])
 
   useEffect(() => {
     const map = mapRef.current
@@ -132,7 +195,19 @@ export function TripMap({ plan, heatmap, hour, selectedRoute, focus, onSelectRou
     map.setFilter('stops', style.filter)
     map.setPaintProperty('trucks', 'circle-color', style.truckColor)
     map.setPaintProperty('trucks', 'circle-radius', style.truckRadius)
-  }, [selectedRoute, ready])
+
+    // Layer toggles: the heatmap and checkpoints by visibility, other routes by filter.
+    map.setLayoutProperty('corridor-heat', 'visibility', shown.heatmap ? 'visible' : 'none')
+    map.setLayoutProperty('checkpoints', 'visibility', shown.checkpoints ? 'visible' : 'none')
+    const onlySelected = shown.otherRoutes ? null : style.filter
+    for (const id of ['route-casing', 'route-risk', 'checkpoints', 'trucks', 'truck-labels']) {
+      map.setFilter(id, onlySelected)
+    }
+    for (const { name, marker } of labelsRef.current) {
+      setLabelSelected(marker.getElement(), name === selectedRoute)
+      marker.getElement().style.display = shown.otherRoutes || name === selectedRoute ? '' : 'none'
+    }
+  }, [selectedRoute, shown, plan, ready])
 
   useEffect(() => {
     const map = mapRef.current
@@ -159,6 +234,28 @@ export function TripMap({ plan, heatmap, hour, selectedRoute, focus, onSelectRou
   }, [focus])
 
   return <Box ref={containerRef} sx={{ position: 'absolute', inset: 0 }} />
+}
+
+/**
+ * Quiets the basemap so the routes and the heatmap carry the color: the palette's grays for
+ * land and water, no small-town or minor labels, and interstates kept legible with their shields.
+ */
+function quietBasemap(map: MapLibreMap) {
+  const has = (id: string) => Boolean(map.getLayer(id))
+  for (const id of [
+    'label_other',
+    'label_village',
+    'landcover_wood',
+    'landcover_ice_shelf',
+    'landcover_glacier',
+    'park',
+  ]) {
+    if (has(id)) map.setLayoutProperty(id, 'visibility', 'none')
+  }
+  if (has('background')) map.setPaintProperty('background', 'background-color', '#eef0f0')
+  if (has('water')) map.setPaintProperty('water', 'fill-color', '#cdd5d9')
+  if (has('highway_motorway_casing')) map.setPaintProperty('highway_motorway_casing', 'line-color', '#b4b9bd')
+  if (has('highway_motorway_inner')) map.setPaintProperty('highway_motorway_inner', 'line-color', '#ffffff')
 }
 
 function source(map: MapLibreMap, id: string): GeoJSONSource {
