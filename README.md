@@ -2,7 +2,7 @@
 
 A React + Django app that helps a truck driver pick the safest of three routes. It checks the forecast at each checkpoint for the hour the truck gets there, applies the load-weight rules, and recommends a route that balances weather risk and travel time.
 
-**Live app:** _link added at deployment_ · **Walkthrough:** _Loom link_
+**Live app:** [haulcast.sebdavid.dev](https://haulcast.sebdavid.dev/) · **Walkthrough:** _Loom link_
 
 ## What it does
 
