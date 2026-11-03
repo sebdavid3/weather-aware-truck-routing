@@ -40,7 +40,7 @@ export function TearRule({ children }: { children?: ReactNode }) {
   )
 }
 
-/** The verdict stamp: the only red on the page besides the commit action. */
+/** The verdict stamp. Stamp red otherwise marks only the commit action and errors. */
 export function Stamp({ children, sx }: { children: ReactNode; sx?: BoxProps['sx'] }) {
   return (
     <Box
