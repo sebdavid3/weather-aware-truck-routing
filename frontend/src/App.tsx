@@ -144,7 +144,7 @@ const SidePanel = memo(function SidePanel({
         <Box>
           <Typography variant="h1">Weather-aware truck routing</Typography>
           <Typography variant="body2" color="text.secondary">
-            Compares three routes by the forecast at each checkpoint when the truck gets there.
+            Compares up to three truck routes by the forecast at each checkpoint when the truck gets there.
           </Typography>
         </Box>
         <TripForm busy={planning} onSubmit={onSubmit} />
@@ -205,6 +205,11 @@ function Recommendation({ plan }: { plan: TripPlan }) {
           <Typography variant="body2">It's the only route the router found.</Typography>
         )}
       </Alert>
+      {plan.routes.length === 2 && (
+        <Typography variant="caption" color="text.secondary">
+          TomTom found only two distinct truck routes for this trip.
+        </Typography>
+      )}
     </Stack>
   )
 }

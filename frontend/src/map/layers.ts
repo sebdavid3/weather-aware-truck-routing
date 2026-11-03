@@ -190,7 +190,9 @@ export function layers(selectedRoute: string): LayerSpecification[] {
         // this intensity makes the density along a route about equal to its weight.
         'heatmap-intensity': 1.4,
         'heatmap-radius': 20,
-        'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.75, 11, 0.35],
+        // The radius stops growing at zoom 9, so the band fades out before it breaks into dots;
+        // up close the colored checkpoints carry the detail.
+        'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.75, 9.5, 0.4, 10.5, 0],
         'heatmap-color': [
           'interpolate',
           ['linear'],

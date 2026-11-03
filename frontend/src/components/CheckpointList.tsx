@@ -22,12 +22,12 @@ export function CheckpointList({ route, timeZone, onFocus }: Props) {
 
   return (
     <Box component="ol" sx={{ listStyle: 'none', m: 0, p: 0 }}>
-      {rows.map((row) =>
+      {rows.map((row, index) =>
         row.kind === 'stop' ? (
-          <StopRow key={`stop-${row.at}`} stop={row.item} timeZone={timeZone} onFocus={onFocus} />
+          <StopRow key={`stop-${index}`} stop={row.item} timeZone={timeZone} onFocus={onFocus} />
         ) : (
           <CheckpointRow
-            key={`cp-${row.item.mile}`}
+            key={`checkpoint-${index}`}
             checkpoint={row.item}
             timeZone={timeZone}
             onFocus={onFocus}
@@ -73,9 +73,9 @@ function CheckpointRow({
             {formatClock(checkpoint.eta, timeZone)}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            Wind {checkpoint.wind_mph.toFixed(0)} mph (gusts {checkpoint.gust_mph.toFixed(0)})
-            {rain > 0 && ` · Rain ${rain.toFixed(2)} in/h`}
-            {snow > 0 && ` · Snow ${snow.toFixed(2)} in/h`}
+            Wind {checkpoint.wind_mph.toFixed(1)} mph (gusts {checkpoint.gust_mph.toFixed(1)})
+            {rain > 0 && ` · Rain ${rain.toFixed(3)} in/h`}
+            {snow > 0 && ` · Snow ${snow.toFixed(3)} in/h`}
           </Typography>
         </Box>
         <LevelChip level={checkpoint.level} />
