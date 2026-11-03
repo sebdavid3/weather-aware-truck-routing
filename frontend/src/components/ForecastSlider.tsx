@@ -12,6 +12,7 @@ import { formatTime } from '../format'
 import { LEVEL_COLOR, LEVEL_LABEL, LEVELS } from '../risk'
 
 const HOURS_PER_SECOND = 3 // Playback speed: the 48 hours take 16 seconds.
+const STEP = 0.25
 
 type Props = {
   departure: string
@@ -80,7 +81,12 @@ export function ForecastSlider({
         <IconButton
           aria-label={playing ? 'Pause forecast' : 'Play forecast'}
           onClick={() => {
-            if (!playing && hour >= hours) onHour(0)
+            if (playing) {
+              // Stop on a slider step, so the label, the thumb and the map show the same hour.
+              onHour(Math.round(hour / STEP) * STEP)
+            } else if (hour >= hours) {
+              onHour(0)
+            }
             onPlaying(!playing)
           }}
           disabled={status !== 'ready'}
@@ -108,7 +114,7 @@ export function ForecastSlider({
             size="small"
             min={0}
             max={hours}
-            step={0.25}
+            step={STEP}
             value={hour}
             onChange={(_, value) => {
               onPlaying(false)
@@ -116,7 +122,14 @@ export function ForecastSlider({
             }}
             marks={Array.from({ length: hours / 6 + 1 }, (_, i) => ({ value: i * 6, label: `${i * 6}h` }))}
             aria-label="Hours after departure"
-            sx={{ mt: 0.5, mb: -0.5, '& .MuiSlider-markLabel': { fontSize: '0.68rem' } }}
+            sx={{
+              mt: 0.5,
+              mb: -0.5,
+              '& .MuiSlider-markLabel': { fontSize: '0.68rem' },
+              // MUI eases the thumb and track over 150 ms. Playback moves them every frame, which
+              // restarts that easing before it gets anywhere, so the thumb froze near its start.
+              '& .MuiSlider-thumb, & .MuiSlider-track': { transition: 'none' },
+            }}
           />
         </Box>
       </Stack>
