@@ -1,71 +1,77 @@
-# Weather-Aware Truck Routing
+<p align="center">
+  <img src="frontend/public/favicon.svg" width="72" alt="Haulcast icon: a route with three checkpoints in green, amber and red">
+</p>
 
-A React + Django app that helps a truck driver pick the safest of three routes. It checks the forecast at each checkpoint for the hour the truck gets there, applies the load-weight rules, and recommends a route that balances weather risk and travel time.
+<h1 align="center">Haulcast</h1>
 
-**Live app:** [haulcast.sebdavid.dev](https://haulcast.sebdavid.dev/) · **Walkthrough:** _Loom link_
+<p align="center">
+  <strong>Weigh your route against the weather.</strong><br>
+  Compare truck routes by the weather the truck will actually meet, stretch by stretch.
+</p>
 
-## What it does
+<p align="center">
+  <a href="https://haulcast.sebdavid.dev/"><strong>Try it live</strong></a> ·
+  <em>Walkthrough video (Loom link coming)</em> ·
+  <a href="docs/weather-risk-decisions.md">How it decides</a>
+</p>
 
-The app is branded **Haulcast**. The landing page at `/` explains it and holds the trip form; the planner at `/plan` shows the results.
+![The Haulcast landing page: the trip form printed as a weigh ticket, with a sample ticket below it](docs/screenshots/landing.png)
 
-1. You enter an origin, a destination, a departure time and the load weight. You can also pick the checkpoint spacing (10, 25 or 50 miles) and include the federal hours-of-service rest breaks.
-2. TomTom returns up to three distinct truck routes.
-3. Each route gets checkpoints at its start, every N miles and at its end. Each checkpoint has an ETA from TomTom's travel times, plus rest stops if you included them.
-4. Open-Meteo gives the hourly forecast at each checkpoint, sampled at the hour the truck arrives.
-5. Each checkpoint is classified Low to No Travel by wind, rain, snow and the load rules.
-6. Routes are ranked by No Travel miles, Severe miles, High miles, average risk and travel time, in that order. The app explains which criterion decided.
-7. The map shows every route colored by risk, the checkpoints and the stops. A heatmap shows corridor risk for 0–48 hours after departure, with a slider and playback. The trucks' positions move with the slider.
+## Why I built it
 
-## Design decisions
+Most weather apps answer "what's the weather now?" A truck leaving Dallas tonight doesn't care about Chicago's weather now. It cares about Chicago's weather tomorrow morning, when it gets there, and about every stretch in between.
 
-The brief leaves several things open. Each decision and its reason is in [docs/weather-risk-decisions.md](docs/weather-risk-decisions.md). The main ones:
+Haulcast plans up to three truck routes, works out when the truck reaches each checkpoint, checks the forecast for that place at that hour, and recommends the safest route. It also tells you **why**: "same Severe miles as Route B, 25 fewer High miles." I started it as a full-stack challenge (React + Django) and kept going until it felt like something a dispatcher could actually use.
 
-- **Rain is `rain + showers`, not `precipitation`.** Open-Meteo's `precipitation` already includes snow as water, so snow would count twice.
-- **Threshold edges:** lower bounds are inclusive and No Travel is strict for rain and snow. So 1.00 in/h of rain is Severe, and 34.5 mph of wind (between the brief's integer ranges) is Moderate.
-- **Which forecast hour a checkpoint uses:** rain, snow and gusts are totals over the preceding hour, so a checkpoint takes the value stamped at the end of the hour that contains its ETA. Wind is instantaneous, so it is interpolated within that hour.
-- **Time zones:** the departure is local time at the origin. All math runs in UTC, and times are shown in the origin's zone. A test covers the 1 November DST change.
-- **Ranking at display precision:** criteria are compared at the precision the UI shows (whole miles, average risk to 1 decimal). Without this, average risk almost never ties and travel time would never count. No Travel miles come first: the brief's list leaves them out, but a route with No Travel miles must not beat one whose worst level is Severe.
-- **Load weight is not sent to TomTom.** Its `vehicleWeight` is gross vehicle weight; the brief's load weight drives the risk rules only.
-- **Rest breaks are optional and off by default,** so the default ETAs match the brief. Turning them on moves later checkpoints to other hours, and often to other weather.
+![The planner: three routes colored by risk, route labels on the map, and the forecast slider moving the trucks along their routes](docs/screenshots/planner.png)
 
-## Staying inside free API limits
+## What you can do with it
 
-Open-Meteo counts each coordinate as one call, and its free limits (600/minute, 5,000/hour, 10,000/day) are per server IP. [docs/api-usage.md](docs/api-usage.md) has the details:
+- **Plan a trip** from any US place to another, with a departure time on the origin's clock and your cargo weight.
+- **Compare three truck routes**, each split into the stretch around every checkpoint (every 10, 25 or 50 miles) and colored from Low to No Travel.
+- **See why one route wins.** The verdict names the criterion that decided against each other route.
+- **Watch the trip play out.** The slider moves each truck along its route on schedule, while a heatmap shows the risk along the corridor hour by hour, up to 48 hours ahead.
+- **Add driver rest breaks.** The federal hours-of-service stops (30 min after 8 h, 10 h after 11 h of driving) move later checkpoints into different weather, and sometimes change the winner.
+- **Account for the load.** Heavy trucks get stricter wind limits: over 30,000 lb, 45 mph is No Travel.
 
-- Points snap to a 0.05° grid. Routes that share a road share forecasts, and the cache keeps each cell's day for an hour.
-- Requests are paced to stay under the per-minute limit: a long trip at 10-mile spacing waits for the budget to free up instead of failing. The planner draws the routes first and shows a countdown while their forecast loads.
-- Hourly and daily limits are not retried; the API answers 503 with `Retry-After`. Timeouts and 5xx get one retry.
-- TomTom is asked for 2 alternatives, not 5. Measured on four trips, that gave the same three routes in half the time.
+## How it works
 
-## Architecture
+1. **Routes:** TomTom's routing API in truck mode returns up to three distinct routes. Near-copies are swapped for real detours.
+2. **Checkpoints:** one at the origin, one every N miles, one at the destination. Each gets an arrival time from the route's own travel times, plus rest stops when you include them.
+3. **Forecast:** Open-Meteo's hourly forecast for that place at that hour: sustained wind, rain and snow.
+4. **Risk:** each checkpoint is classified with the threshold table and the load rules, and takes the worst of its conditions.
+5. **Verdict:** routes are ranked by No Travel miles, then Severe, then High, then average risk, then travel time.
 
-```
-frontend/  React 19 + TypeScript + MUI + MapLibre (Vite)
-backend/   Django 6 + DRF, no database
-  planner/
-    risk.py        thresholds and load rules (pure)
-    ranking.py     route summaries, order and explanations (pure)
-    trip.py        checkpoints, ETAs, rest stops, time zones (pure)
-    geometry.py    distances, positions, simplification (pure)
-    weather.py     Open-Meteo client: cells, cache, batches, sampling
-    routing.py     TomTom client: truck routes, distinct alternatives, detours
-    geocoding.py   TomTom Search for the place fields
-    corridor.py    heatmap lattice
-    planning.py    puts the pieces together for the endpoints
-    views.py       HTTP: POST /api/routes, POST /api/heatmap, GET /api/places
-```
+Long trips at 10-mile checkpoints need hundreds of forecast points. Instead of failing, the server paces its weather requests to the free plan's per-minute limit, and the planner shows the routes right away with a countdown while every stretch is checked.
 
-The domain modules know nothing about HTTP or Django, and the clients take their HTTP client and cache as arguments. That keeps the tests fast and offline.
+## Decisions I had to make
 
-In production Django serves the built frontend with WhiteNoise, so the app and its API share one origin and need no CORS.
+The brief left a few things open. Every call is written down, with its reason and the tests that pin it, in [docs/weather-risk-decisions.md](docs/weather-risk-decisions.md). My favorites:
 
-## Run locally
+- **Rain is `rain + showers`, not `precipitation`.** I checked the API: `precipitation` already includes snow as water, so snow would count twice.
+- **Which forecast hour?** Rain and snow are totals over the *previous* hour, so a truck at 10:20 uses the value stamped 11:00 (10 to 11). Wind is an instant reading, so it's interpolated.
+- **Time zones.** The departure is read on the origin's clock, all math runs in UTC, and a test covers the daylight-saving change on November 1st. (The weather API applies one fixed UTC offset to a whole response, which would have shifted every hour after the change.)
+- **Ranking at the precision you see.** Average risk is compared to one decimal, so when two routes look equally risky, travel time gets a say. No Travel miles rank first, because a route with No Travel must never win.
 
-Requirements: [uv](https://docs.astral.sh/uv/), Node.js 22+ and a free [TomTom API key](https://developer.tomtom.com/) with the Routing and Search APIs.
+How the app stays inside the free API limits (cells, cache, pacing) is in [docs/api-usage.md](docs/api-usage.md).
+
+## Tech stack
+
+| | |
+|---|---|
+| **Frontend** | React 19, TypeScript, Material UI, MapLibre GL, Vite |
+| **Backend** | Django 6, Django REST Framework, httpx, no database |
+| **Data** | TomTom Routing and Search, Open-Meteo forecasts, OpenFreeMap tiles |
+| **Hosting** | Docker on Render, with Django and WhiteNoise serving the built app |
+| **Quality** | pytest (154 tests, all offline), Ruff, oxlint, Prettier |
+
+## Run it locally
+
+You'll need [uv](https://docs.astral.sh/uv/), Node.js 22+ and a free [TomTom API key](https://developer.tomtom.com/) with the Routing and Search APIs enabled.
 
 ```bash
 cd backend
-cp .env.example .env    # then set TOMTOM_API_KEY
+cp .env.example .env    # then add your TOMTOM_API_KEY
 uv run python manage.py runserver
 ```
 
@@ -75,7 +81,7 @@ npm install
 npm run dev             # http://localhost:5173, proxies /api to Django
 ```
 
-## Tests and checks
+## Tests
 
 ```bash
 cd backend && uv run pytest && uv run ruff check . && uv run ruff format --check .
@@ -85,19 +91,42 @@ cd backend && uv run pytest && uv run ruff check . && uv run ruff format --check
 cd frontend && npm run lint && npm run format:check && npm run build
 ```
 
-The backend suite has about 140 tests. It covers every threshold edge, the load rules, the sampling hours, the DST change, rest-break ETAs, ranking and explanations, the clients' cache, batching and error handling, and the endpoints. The tests run against fake Open-Meteo and TomTom servers and never touch the network.
+The tests run against fake Open-Meteo and TomTom servers that mimic the real responses, so they never touch the network and finish in about a second. They cover every threshold edge, the load rules, the forecast hour each checkpoint uses, the daylight-saving change, rest-break arrival times, ranking and its explanations, request pacing, caching and error handling.
+
+## Project layout
+
+```
+frontend/src/
+  landing/        the landing page
+  planner/        the planner screen, its side panel and the loading countdown
+  map/            MapLibre layers, route labels and place pins
+  components/     route tickets, checkpoint list, forecast slider, layer toggles
+  ticket/         the weigh-ticket form and paper
+  trip/           form state and where each truck is at a given hour
+backend/planner/
+  risk.py         thresholds and load rules
+  ranking.py      route totals, order and the "why" sentences
+  trip.py         checkpoints, arrival times, rest stops, time zones
+  weather.py      Open-Meteo client: cells, cache, pacing, forecast hour
+  routing.py      TomTom client: truck routes, alternatives, detours
+  planning.py     puts it all together for the endpoints
+  views.py        /api/routes, /api/routes/preview, /api/heatmap, /api/places
+```
+
+Risk, ranking, trip and geometry are plain functions with no HTTP in them; the clients receive their HTTP client and cache as arguments. That's what keeps the tests fast and easy to read.
 
 ## Deploy
 
-The `Dockerfile` builds the frontend and runs Django with gunicorn: one process with threads, so the in-memory cache is shared by all requests. `render.yaml` describes a Render web service. Set `TOMTOM_API_KEY` in the host's environment; `DJANGO_SECRET_KEY` and `DJANGO_ALLOWED_HOSTS` are required when `DJANGO_DEBUG` is not `true`.
+The `Dockerfile` builds the frontend and runs Django with gunicorn: one process with threads, so every request shares the in-memory cache and the weather pacing. `render.yaml` describes the Render service. Set `TOMTOM_API_KEY`, `DJANGO_SECRET_KEY` and `DJANGO_ALLOWED_HOSTS` in the host's environment.
 
-## Limitations and next steps
+## What I'd do next
 
-- Rest stops happen wherever the truck reaches its hours limit. A real planner would look for truck stops.
-- Free hosting shares outbound IPs, which can hit Open-Meteo's per-IP limits sooner. A paid Open-Meteo key or a dedicated IP fixes that.
-- The cache lives in memory, so it resets on restart. With more than one server process it would move to Redis.
-- Hourly forecasts lose skill after a few days, so departures are limited to the next 7 days.
+- Put rest stops at real truck stops instead of wherever the hours run out.
+- Move the cache to Redis, so it survives restarts and works across several servers.
+- Let the user compare departure times ("leave at 6 or at 9?") side by side.
 
-## Attribution
+## Credits
 
-Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Routing and search by TomTom. Map tiles by [OpenFreeMap](https://openfreemap.org/), with data © OpenMapTiles and © OpenStreetMap contributors.
+Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Routing and place search by TomTom. Map tiles by [OpenFreeMap](https://openfreemap.org/), with data © OpenMapTiles and © OpenStreetMap contributors.
+
+Made by [Sebastian Ibañez](https://github.com/sebdavid3).
