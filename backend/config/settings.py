@@ -56,6 +56,9 @@ DATABASES = {}
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        # Django's default of 300 entries is less than one search writes: a
+        # heatmap alone stores about 450 (cell, day) forecasts.
+        "OPTIONS": {"MAX_ENTRIES": 20_000},
     },
 }
 

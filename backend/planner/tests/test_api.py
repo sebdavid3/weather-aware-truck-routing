@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import httpx
 import pytest
 
 from planner import planning, views
@@ -146,3 +147,33 @@ def test_a_rate_limit_becomes_503_with_retry_after(client, backends):
 
 def test_places_needs_three_characters(client):
     assert client.get("/api/places?q=da").json() == {"places": []}
+
+
+def test_repeating_a_search_reuses_every_cached_forecast(client, monkeypatch):
+    """A repeat, or the same trip with another load, makes no new weather or routing calls."""
+    from django.core.cache import cache
+
+    from planner.weather import OpenMeteoClient
+
+    cache.clear()
+    fake_weather = FakeOpenMeteo()
+    long_routes = [
+        as_route([(30.0 + i / 10, lon) for i in range(101)]) for lon in (-97.0, -96.0, -95.0)
+    ]
+    weather = OpenMeteoClient(
+        http=httpx.Client(transport=httpx.MockTransport(fake_weather)), retry_delay_s=0
+    )
+    monkeypatch.setattr(views, "router", lambda: FakeRouter(long_routes))
+    monkeypatch.setattr(views, "weather", lambda: weather)
+
+    def search(**overrides):
+        for url in ("/api/routes", "/api/heatmap"):
+            response = client.post(url, trip(**overrides), content_type="application/json")
+            assert response.status_code == 200
+
+    search()
+    calls = len(fake_weather.requests)
+    search()
+    search(load_lb=45_000)
+
+    assert len(fake_weather.requests) == calls
