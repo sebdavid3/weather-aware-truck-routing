@@ -1,42 +1,54 @@
-"""Grid cells covering the trip corridor, for the forecast heatmap."""
+"""A regular lattice of forecast points over the trip corridor, for the heatmap."""
 
+import math
 from collections.abc import Sequence
+from dataclasses import dataclass
 
-from planner.geometry import METERS_PER_MILE, Polyline, bearing_deg, offset_point
+from planner.geometry import METERS_PER_MILE, Polyline
 from planner.weather import Cell
 
 MAX_POINTS = 150  # docs/api-usage.md: keeps a search under Open-Meteo's per-minute limit.
 MIN_SPACING_MILES = 10.0
-SPACING_GROWTH = 1.2
-LATERAL_OFFSETS_MILES = (-25.0, 0.0, 25.0)
-HEADING_SPAN_M = 2_000  # Distance on each side used to measure the route's heading.
+SPACING_GROWTH = 1.15
+MILES_PER_DEGREE_LAT = 69.05
 
 
-def corridor_cells(polylines: Sequence[Polyline], max_points: int = MAX_POINTS) -> list[Cell]:
-    """Cells along every route and across it, spaced as tightly as `max_points` allows.
+@dataclass(frozen=True)
+class Corridor:
+    cells: list[Cell]
+    spacing_miles: float
 
-    Routes that share a road share cells, so overlapping routes don't stack
-    up in the heatmap.
+
+def corridor(polylines: Sequence[Polyline], max_points: int = MAX_POINTS) -> Corridor:
+    """Lattice nodes the routes pass, as dense as `max_points` allows.
+
+    Routes are snapped to a square lattice instead of sampled on their own,
+    so where routes share a road they share nodes, and the heatmap's density
+    stays even instead of doubling on overlaps.
     """
     spacing = MIN_SPACING_MILES
     while True:
-        cells = _cells(polylines, spacing * METERS_PER_MILE)
+        cells = _lattice_cells(polylines, spacing)
         if len(cells) <= max_points:
-            return cells
+            return Corridor(cells, spacing)
         spacing *= SPACING_GROWTH
 
 
-def _cells(polylines: Sequence[Polyline], spacing_m: float) -> list[Cell]:
-    cells: dict[Cell, None] = {}
+def _lattice_cells(polylines: Sequence[Polyline], spacing_miles: float) -> list[Cell]:
+    mean_lat = sum(p[0] for line in polylines for p in line.points) / sum(
+        len(line.points) for line in polylines
+    )
+    lat_step = spacing_miles / MILES_PER_DEGREE_LAT
+    lon_step = lat_step / math.cos(math.radians(mean_lat))
+    # Half-spacing samples guarantee every lattice square a route crosses is hit.
+    sample_m = spacing_miles * METERS_PER_MILE / 2
+    nodes: dict[tuple[int, int], None] = {}
     for line in polylines:
-        steps = max(1, round(line.length_m / spacing_m))
-        for step in range(steps + 1):
-            distance = line.length_m * step / steps
-            center = line.point_at(distance)
-            heading = bearing_deg(
-                line.point_at(distance - HEADING_SPAN_M), line.point_at(distance + HEADING_SPAN_M)
-            )
-            for offset in LATERAL_OFFSETS_MILES:
-                point = offset_point(center, heading + 90, offset * METERS_PER_MILE)
-                cells.setdefault(Cell.containing(*point))
-    return list(cells)
+        for step in range(int(line.length_m // sample_m) + 1):
+            lat, lon = line.point_at(step * sample_m)
+            nodes.setdefault((round(lat / lat_step), round(lon / lon_step)))
+        lat, lon = line.points[-1]
+        nodes.setdefault((round(lat / lat_step), round(lon / lon_step)))
+    return list(
+        dict.fromkeys(Cell.containing(row * lat_step, col * lon_step) for row, col in nodes)
+    )

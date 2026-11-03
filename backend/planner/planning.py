@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 
-from planner.corridor import corridor_cells
+from planner.corridor import corridor
 from planner.geometry import METERS_PER_MILE, LatLon, simplify, slice_between
 from planner.ranking import rank, recommendation_reasons, summarize, warning
 from planner.risk import RiskLevel, assess
@@ -113,12 +113,14 @@ def plan_trip(trip: TripRequest, router: TomTomRouter, weather: OpenMeteoClient)
 
 def plan_heatmap(trip: TripRequest, router: TomTomRouter, weather: OpenMeteoClient) -> dict:
     """Risk levels for the corridor at each hour from departure to 48 h later."""
-    cells = corridor_cells([route.polyline for route in _routes(trip, router)])
+    lattice = corridor([route.polyline for route in _routes(trip, router)])
+    cells = lattice.cells
     times = [trip.departure + timedelta(hours=hour) for hour in range(HEATMAP_HOURS + 1)]
     forecast = weather.forecast([(cell, time) for cell in cells for time in times])
     return {
         "departure": _iso(trip.departure),
         "hours": HEATMAP_HOURS,
+        "spacing_miles": round(lattice.spacing_miles, 1),
         "points": [[round(cell.lon, 2), round(cell.lat, 2)] for cell in cells],
         "levels": [
             [
