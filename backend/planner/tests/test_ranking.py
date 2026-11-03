@@ -36,16 +36,38 @@ def test_summarize_adds_miles_per_level_and_weights_the_average():
     result = summarize("A", [(LOW, 50.0), (HIGH, 25.0), (LOW, 12.5), (SEVERE, 12.5)], 3600 * 2.5)
 
     assert result.miles_by_level == {
-        LOW: 62,  # 62.5 rounds to even.
+        LOW: 63,  # Halves round up: 62.5 -> 63.
         MODERATE: 0,
         HIGH: 25,
-        SEVERE: 12,
+        SEVERE: 13,
         NO_TRAVEL: 0,
     }
     # (2 x 25 + 3 x 12.5) / 100 = 0.875
     assert result.average_risk == 0.9
     assert result.worst_level == SEVERE
     assert result.duration_minutes == 150
+
+
+def test_a_short_stretch_of_a_level_still_counts_as_a_mile():
+    # A destination checkpoint can cover under a mile; rounding it to 0 would hide it.
+    result = summarize("A", [(LOW, 50.0), (LOW, 50.4), (NO_TRAVEL, 0.4)], 3600)
+
+    assert result.miles_by_level[NO_TRAVEL] == 1
+    assert warning([result]) == NO_TRAVEL_WARNING
+
+
+def test_a_hidden_no_travel_stretch_cannot_win_on_time():
+    risky = summarize("A", [(LOW, 100.4), (NO_TRAVEL, 0.4)], 3600)
+    clean = summarize("B", [(LOW, 100.8)], 4200)
+
+    assert [s.name for s in rank([risky, clean])] == ["B", "A"]
+
+
+def test_average_risk_rounds_halves_up():
+    # 0.25 is stored as 0.2499999...; it still shows, and ranks, as 0.3.
+    result = summarize("A", [(MODERATE, 25.0), (LOW, 75.0)], 3600)
+
+    assert result.average_risk == 0.3
 
 
 def test_summarize_an_all_low_route():

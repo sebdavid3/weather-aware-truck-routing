@@ -5,6 +5,7 @@ miles, High miles, average risk, then travel time, each compared at the
 precision the UI shows.
 """
 
+import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
@@ -48,13 +49,25 @@ def summarize(
     average = sum(level.value * miles for level, miles in exact.items()) / total if total else 0.0
     return RouteSummary(
         name=name,
-        miles_by_level={level: round(miles) for level, miles in exact.items()},
-        average_risk=round(average, 1),
+        miles_by_level={level: _whole_miles(miles) for level, miles in exact.items()},
+        average_risk=_half_up(average, 1),
         worst_level=max(
             (level for level, miles in exact.items() if miles > 0), default=RiskLevel.LOW
         ),
-        duration_minutes=round(duration_s / 60),
+        duration_minutes=int(_half_up(duration_s / 60)),
     )
+
+
+def _whole_miles(miles: float) -> int:
+    """Whole miles, but never 0 for a level the route has: half a mile of No Travel still counts."""
+    return max(1, int(_half_up(miles))) if miles > 0 else 0
+
+
+def _half_up(value: float, digits: int = 0) -> float:
+    # Python's round() sends halves to the even neighbor (12.5 -> 12); the UI reads 12.5 as 13.
+    # The epsilon keeps values like 0.25, stored as 0.2499999..., on the side a person expects.
+    scale = 10**digits
+    return math.floor(value * scale + 0.5 + 1e-9) / scale
 
 
 def rank(summaries: Sequence[RouteSummary]) -> list[RouteSummary]:
