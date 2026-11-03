@@ -91,7 +91,7 @@ Routes are sorted ascending by this key. The sort is stable, so full ties keep t
 
 - **No Travel miles come first.** The brief's list leaves them out, but a route with No Travel miles must not beat one whose worst level is Severe.
 - **Precision:** each key is compared at the precision the UI shows: miles as whole numbers, average risk to 1 decimal, duration in minutes. A difference the user can't see doesn't decide the ranking. Without this, average risk is continuous and almost never ties, so travel time would never count, even though the brief asks to balance risk and travel time.
-- **Rounding:** the backend rounds these values and sends them as they are displayed; the frontend does not round again. One rounding rule means the ranking and the display can't diverge.
+- **Rounding:** the backend rounds these values and sends them as they are displayed; the frontend does not round again. One rounding rule means the ranking and the display can't diverge. Halves round up (12.5 miles shows as 13), and any level a route has counts as at least 1 mile, so a short No Travel stretch at the destination can't round away to 0.
 - **Warning:** if the recommended route still has No Travel miles, the UI warns that no route is safe at that departure time.
 - **Explanation:** the UI states the criterion that decided, for example "Same Severe miles as A; 25 fewer High miles".
 

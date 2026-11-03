@@ -30,7 +30,7 @@ How the app stays inside the free limits of the APIs it calls. The limit that bi
 - **What is cached:** each entry is keyed by (cell, UTC day) and holds that day's 24 hourly values. Entries last 1 hour, because the models update about hourly.
 - **Why it saves calls:** a cell's weather on a given day doesn't depend on who asks. Changing the load weight or the spacing, or toggling rest breaks, needs few or no new calls.
 - **How misses are fetched:** missing (cell, day) pairs are fetched as whole days, and cells that need the same day range share a request.
-- **Where it lives:** Django's cache API. Redis in production, local memory in development and tests.
+- **Where it lives:** Django's in-memory cache, with room for 20,000 entries (one search writes several hundred). The server runs one process with threads, so every request shares it. With more processes it would move to Redis.
 
 ## Requests and errors
 
@@ -42,10 +42,10 @@ How the app stays inside the free limits of the APIs it calls. The limit that bi
 
 ## Routing and geocoding
 
-- **Routing:** one call per search returns all three alternatives. A 1-hour cache keyed by origin and destination avoids a second call when the load weight or rest breaks change and when the heatmap loads. If the provider uses departure time for traffic, the departure is part of the key too. The provider's terms must allow this cache.
+- **Routing:** one call per search returns the main route and two alternatives. When an alternative is a near-copy, up to two more calls ask for detours. A 1-hour cache keyed by origin, destination and the requested departure avoids new calls when the load weight or rest breaks change and when the heatmap loads. The provider's terms must allow this cache.
 - **Geocoding:** autocomplete is what costs calls. Requests wait 300 ms after the last keystroke, need at least 3 characters, cancel any earlier request still in flight and search only the US.
 - **Keys:** routing and geocoding keys live only in the backend, which proxies those calls. The basemap (OpenFreeMap) needs no key.
-- **Provider:** the routing provider is still open (Mapbox or TomTom). This plan works with either.
+- **Provider:** TomTom Routing v1 in truck mode. Calls run one after another, because six parallel requests got a 429.
 
 ## Expected usage
 
@@ -54,7 +54,7 @@ Example: Dallas → Chicago (about 930 miles) with 25-mile spacing.
 | Search | Open-Meteo calls | What the free limits allow |
 |--------|------------------|----------------------------|
 | New trip, cold cache | About 100 checkpoint cells + 150 heatmap points ≈ 250 | About 2 searches/minute, 20/hour, 40/day |
-| Same trip again, or another load weight | Almost none | Practically unlimited |
+| Same trip again within the hour, or another load weight | None | Practically unlimited |
 
 ## Known risk
 
