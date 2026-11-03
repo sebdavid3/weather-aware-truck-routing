@@ -67,6 +67,16 @@ export type TripPlan = {
   routes: RoutePlan[]
 }
 
+/** The routes before their weather, so the map has something to show while the forecast loads. */
+export type TripPreview = {
+  departure: string
+  timezone: string
+  checkpoints: number // Distinct forecast points across all routes.
+  to_fetch: number // Of those, how many are not cached yet.
+  wait_seconds: number // About how long the forecast will take, within the free plan's limits.
+  routes: { name: string; distance_miles: number; drive_minutes: number; line: LonLat[] }[]
+}
+
 export type Heatmap = {
   departure: string
   hours: number
@@ -83,6 +93,10 @@ export function searchPlaces(query: string, signal: AbortSignal): Promise<{ plac
 
 export function planTrip(trip: TripInput, signal?: AbortSignal): Promise<TripPlan> {
   return post('/api/routes', trip, signal)
+}
+
+export function previewTrip(trip: TripInput, signal?: AbortSignal): Promise<TripPreview> {
+  return post('/api/routes/preview', trip, signal)
 }
 
 export function fetchHeatmap(trip: TripInput, signal?: AbortSignal): Promise<Heatmap> {

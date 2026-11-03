@@ -2,7 +2,7 @@
 
 import type { FeatureCollection } from 'geojson'
 import type { ExpressionSpecification, LayerSpecification } from 'maplibre-gl'
-import type { Heatmap, TripPlan } from '../api'
+import type { Heatmap, TripPlan, TripPreview } from '../api'
 import { LEVEL_COLOR } from '../risk'
 import { progressAt } from '../trip/progress'
 
@@ -28,6 +28,18 @@ export function routeFeatures(plan: TripPlan): Collection {
         geometry: { type: 'LineString' as const, coordinates: segment.coordinates },
       })),
     ),
+  }
+}
+
+/** Preview lines, drawn in the pending gray until their checkpoints are weighed. */
+export function previewFeatures(preview: TripPreview): Collection {
+  return {
+    type: 'FeatureCollection',
+    features: preview.routes.map((route) => ({
+      type: 'Feature' as const,
+      properties: { route: route.name, level: 'pending' },
+      geometry: { type: 'LineString' as const, coordinates: route.line },
+    })),
   }
 }
 
@@ -97,7 +109,8 @@ const levelColor: ExpressionSpecification = [
   LEVEL_COLOR.severe,
   'no_travel',
   LEVEL_COLOR.no_travel,
-  '#888888',
+  // Pending: a preview route whose weather is still loading.
+  '#8a8d94',
 ]
 
 /**

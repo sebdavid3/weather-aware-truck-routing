@@ -2,15 +2,25 @@ import Box from '@mui/material/Box'
 import LinearProgress from '@mui/material/LinearProgress'
 import Typography from '@mui/material/Typography'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { fetchHeatmap, planTrip, type Heatmap, type LonLat, type TripPlan } from '../api'
+import {
+  fetchHeatmap,
+  planTrip,
+  previewTrip,
+  type Heatmap,
+  type LonLat,
+  type TripPlan,
+  type TripPreview,
+} from '../api'
 import { color, display, font } from '../brand'
 import { CheckpointList } from '../components/CheckpointList'
 import { ForecastSlider, type SliderRange } from '../components/ForecastSlider'
 import { LayerToggles, type MapLayers } from '../components/LayerToggles'
 import { RouteCard } from '../components/RouteCard'
 import { TripMap } from '../map/TripMap'
+import { Weighing } from './Weighing'
 import { Stamp, TearRule, Ticket, Wordmark } from '../ticket/Ticket'
 import { TicketForm } from '../ticket/TicketForm'
+import { formatDuration } from '../format'
 import { initialDraft, toTripInput, type TripDraft } from '../trip/draft'
 import { arrivalHour, progressAt } from '../trip/progress'
 
@@ -34,6 +44,7 @@ export function Planner({ initialDraft: handoff, onHome }: Props) {
   const [focus, setFocus] = useState<{ position: LonLat; key: number } | null>(null)
   const [range, setRange] = useState<SliderRange>('trip')
   const [places, setPlaces] = useState<{ origin: string; destination: string } | null>(null)
+  const [preview, setPreview] = useState<(TripPreview & { startedAt: number }) | null>(null)
   const [layers, setLayers] = useState<MapLayers>({ heatmap: true, checkpoints: true, otherRoutes: true })
   const requestRef = useRef<AbortController | null>(null)
   const draftRef = useRef(draft)
@@ -53,10 +64,16 @@ export function Planner({ initialDraft: handoff, onHome }: Props) {
     setPlanning(true)
     setError(undefined)
     setPlaying(false)
+    setPlan(null)
+    setPreview(null)
     try {
+      // Routes first, in a few seconds; the forecast for every checkpoint follows.
+      const routes = await previewTrip(trip, controller.signal)
+      setPreview({ ...routes, startedAt: Date.now() })
+      setPlaces(labels)
       const result = await planTrip(trip, controller.signal)
       setPlan(result)
-      setPlaces(labels)
+      setPreview(null)
       setSelected(result.recommended)
       setHour(0)
       setRange('trip')
@@ -110,6 +127,7 @@ export function Planner({ initialDraft: handoff, onHome }: Props) {
         draft={draft}
         onDraft={setDraft}
         plan={plan}
+        preview={preview}
         planning={planning}
         error={error}
         selected={selected}
@@ -129,9 +147,11 @@ export function Planner({ initialDraft: handoff, onHome }: Props) {
           onSelectRoute={setSelected}
           places={places}
           layers={layers}
+          preview={preview}
         />
+        {preview && !plan && <Weighing preview={preview} />}
         {plan && <LayerToggles layers={layers} onChange={setLayers} />}
-        {!plan && !planning && (
+        {!plan && !planning && !preview && (
           <Box sx={{ position: 'absolute', top: 16, left: 16, maxWidth: 340 }}>
             <Ticket sx={{ pt: 2.5, pb: 2 }}>
               <Typography sx={{ ...display, fontSize: '1.2rem' }}>Fill the ticket to weigh routes</Typography>
@@ -174,6 +194,7 @@ type PanelProps = {
   draft: TripDraft
   onDraft: (draft: TripDraft) => void
   plan: TripPlan | null
+  preview: TripPreview | null
   planning: boolean
   error?: string
   selected: string
@@ -189,6 +210,7 @@ const SidePanel = memo(function SidePanel({
   draft,
   onDraft,
   plan,
+  preview,
   planning,
   error,
   selected,
@@ -274,7 +296,8 @@ const SidePanel = memo(function SidePanel({
             </Box>
           )}
         </Ticket>
-        {planning && !plan && <Printing />}
+        {planning && !plan && !preview && <Printing />}
+        {preview && !plan && <PreviewRoutes preview={preview} />}
         {plan && (
           <>
             <Verdict plan={plan} />
@@ -316,6 +339,43 @@ const SidePanel = memo(function SidePanel({
     </Box>
   )
 })
+
+/** The routes as soon as they are known, while their checkpoints are still being weighed. */
+function PreviewRoutes({ preview }: { preview: TripPreview }) {
+  return (
+    <Ticket>
+      <Typography component="h2" sx={{ ...display, fontSize: '1.25rem' }}>
+        Routes found
+      </Typography>
+      <Typography sx={{ fontFamily: font.ticket, fontSize: '0.74rem', color: color.inkSoft, mt: 0.75 }}>
+        Weighing {preview.checkpoints.toLocaleString('en-US')} checkpoints against the forecast…
+      </Typography>
+      <Box
+        component="ul"
+        sx={{ listStyle: 'none', m: 0, mt: 1.5, p: 0, fontFamily: font.ticket, fontSize: '0.86rem' }}
+      >
+        {preview.routes.map((route) => (
+          <Box
+            component="li"
+            key={route.name}
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              py: 0.75,
+              borderTop: `1px dashed ${color.rule}`,
+            }}
+          >
+            <span>Route {route.name}</span>
+            <span>
+              {route.distance_miles.toLocaleString('en-US')} mi · {formatDuration(route.drive_minutes)}{' '}
+              driving
+            </span>
+          </Box>
+        ))}
+      </Box>
+    </Ticket>
+  )
+}
 
 function Verdict({ plan }: { plan: TripPlan }) {
   return (

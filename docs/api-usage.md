@@ -8,9 +8,10 @@ How the app stays inside the free limits of the APIs it calls. The limit that bi
 - The free limits are per IP: 600 calls/minute, 5,000/hour and 10,000/day. The backend makes every call, so all users share the server's budget.
 - 350 locations × 49 hours × 5 variables took about 1.8 s and returned about 900 KB. The GET URL was about 4,200 characters.
 
-## Two endpoints
+## Three endpoints
 
-- **`POST /api/routes`** returns routes, checkpoints, risk and the recommendation.
+- **`POST /api/routes/preview`** returns the routes' lines, how many checkpoint cells the trip needs and about how long their forecast will take. It fetches no weather, so the planner draws the routes within seconds and shows a real countdown while the forecast loads.
+- **`POST /api/routes`** returns routes, checkpoints, risk and the recommendation. It reuses the routes the preview cached.
 - **`POST /api/heatmap`** returns the forecast grid for the slider. The frontend requests it after the routes arrive, so if it hits a limit the routes are already on screen. It takes the same trip and reuses the routes from the routing cache, so it makes no routing call.
 
 ## Fewer points
@@ -19,11 +20,12 @@ How the app stays inside the free limits of the APIs it calls. The limit that bi
 - When the three routes share cells, each cell is fetched once.
 - The heatmap grid spacing grows with the corridor, so it never has more than 150 points.
 
-## Per-search cap
+## Pacing instead of refusing
 
-- A search may use at most 400 checkpoint cells and 150 heatmap points. That totals 550, under the 600/minute limit, so a single search can't use up a minute's budget.
-- The cap counts every cell, cached or not, so the same search always gets the same answer.
-- A search over the cap gets a 422 suggesting 25- or 50-mile spacing. A long route at 10-mile spacing is the usual case.
+- The brief offers 10-, 25- and 50-mile checkpoints for any trip, and three coast-to-coast routes at 10 miles need about 850 cells, more than a minute's 600.
+- The weather client keeps a trailing one-minute count of the locations it has requested (550 allowed, leaving room for other traffic). A batch that would go over it waits until older requests age out, so a long trip takes about a minute longer instead of failing. The server runs one process, so the count sees all of its own traffic.
+- If Open-Meteo still answers with its per-minute 429, because other traffic from the same IP used part of the minute, the batch waits 60 s and is sent once more. Hourly and daily limits fail at once.
+- A hard cap of 1,200 cells per search remains as a guard; no US trip at 10-mile spacing reaches it.
 
 ## Cache
 
@@ -35,7 +37,7 @@ How the app stays inside the free limits of the APIs it calls. The limit that bi
 ## Requests and errors
 
 - Each GET carries at most 300 coordinates, and at most two requests run in parallel.
-- **Open-Meteo 429:** no retry. The API returns 503 with `Retry-After` set by the limit Open-Meteo names (minute, hour or day) and a message saying which one it was.
+- **Open-Meteo 429:** the per-minute limit is waited out once (above). The hourly and daily limits are not retried: the API returns 503 with `Retry-After` set by the limit Open-Meteo names and a message saying which one it was.
 - **Timeout or 5xx:** one short retry. If that also fails, the request fails with 502, as in [weather-risk-decisions.md](weather-risk-decisions.md#missing-forecast).
 - A failed fetch never gets made-up data in its place.
 - Tests use recorded responses and never call the API.

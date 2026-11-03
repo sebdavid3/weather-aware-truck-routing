@@ -164,7 +164,11 @@ export function ForecastSlider({
                 },
               }}
             >
-              <ToggleButton value="trip">Trip · {formatHours(tripHours)}</ToggleButton>
+              <ToggleButton value="trip">
+                {tripHours > forecastHours
+                  ? `Trip · first ${forecastHours} h`
+                  : `Trip · ${formatHours(tripHours)}`}
+              </ToggleButton>
               <ToggleButton value="forecast">48 h forecast</ToggleButton>
             </ToggleButtonGroup>
           </Stack>

@@ -13,7 +13,7 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { useEffect, useRef, useState } from 'react'
-import type { Heatmap, LonLat, TripPlan } from '../api'
+import type { Heatmap, LonLat, TripPlan, TripPreview } from '../api'
 import type { MapLayers } from '../components/LayerToggles'
 import { formatClock, formatTime } from '../format'
 import { LEVEL_LABEL } from '../risk'
@@ -24,6 +24,7 @@ import {
   heatFeatures,
   heatRadius,
   heatWeight,
+  previewFeatures,
   layers,
   routeFeatures,
   selectionStyle,
@@ -59,6 +60,8 @@ type Props = {
   onSelectRoute: (name: string) => void
   places: { origin: string; destination: string } | null
   layers: MapLayers
+  /** Routes shown in gray while their checkpoints are weighed. */
+  preview: TripPreview | null
 }
 
 export function TripMap({
@@ -70,6 +73,7 @@ export function TripMap({
   onSelectRoute,
   places,
   layers: shown,
+  preview,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -137,16 +141,19 @@ export function TripMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-    source(map, SOURCES.routes).setData(plan ? routeFeatures(plan) : empty())
+    source(map, SOURCES.routes).setData(
+      plan ? routeFeatures(plan) : preview ? previewFeatures(preview) : empty(),
+    )
     source(map, SOURCES.checkpoints).setData(plan ? checkpointFeatures(plan) : empty())
     source(map, SOURCES.stops).setData(plan ? stopFeatures(plan) : empty())
-    if (!plan) return
+    const lines = plan
+      ? plan.routes.flatMap((route) => route.segments.map((segment) => segment.coordinates))
+      : (preview?.routes.map((route) => route.line) ?? [])
+    if (!lines.length) return
     const bounds = new LngLatBounds()
-    for (const route of plan.routes) {
-      for (const segment of route.segments) for (const point of segment.coordinates) bounds.extend(point)
-    }
+    for (const line of lines) for (const point of line) bounds.extend(point)
     map.fitBounds(bounds, { padding: { top: 80, bottom: 220, left: 200, right: 120 }, duration: 800 })
-  }, [plan, ready])
+  }, [plan, preview, ready])
 
   // Route summary tickets and the two place pins, rebuilt for each new plan.
   useEffect(() => {

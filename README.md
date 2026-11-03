@@ -33,8 +33,8 @@ The brief leaves several things open. Each decision and its reason is in [docs/w
 Open-Meteo counts each coordinate as one call, and its free limits (600/minute, 5,000/hour, 10,000/day) are per server IP. [docs/api-usage.md](docs/api-usage.md) has the details:
 
 - Points snap to a 0.05° grid. Routes that share a road share forecasts, and the cache keeps each cell's day for an hour.
-- One search uses at most 400 checkpoint cells plus 150 heatmap points, under the per-minute limit. A longer trip at 10-mile spacing gets a clear 422 that suggests a longer interval.
-- A 429 is never retried; the API answers 503 with `Retry-After`. Timeouts and 5xx get one retry.
+- Requests are paced to stay under the per-minute limit: a long trip at 10-mile spacing waits for the budget to free up instead of failing. The planner draws the routes first and shows a countdown while their forecast loads.
+- Hourly and daily limits are not retried; the API answers 503 with `Retry-After`. Timeouts and 5xx get one retry.
 - TomTom is asked for 2 alternatives, not 5. Measured on four trips, that gave the same three routes in half the time.
 
 ## Architecture
