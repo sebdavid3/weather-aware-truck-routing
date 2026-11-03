@@ -63,11 +63,11 @@ class TomTomGeocoder:
                 retry_delay_s=self._retry_delay_s,
             )
         except UpstreamFailed as exc:
-            raise GeocodingError("Place search is unavailable right now") from exc
+            raise GeocodingError("Place search isn't available right now") from exc
         if response.status_code == 429:
             raise GeocodingError("Too many place searches; try again in a moment")
         if not response.is_success:
-            raise GeocodingError(f"Place search failed ({response.status_code})")
+            raise GeocodingError("Place search isn't available right now")
 
         places = []
         try:
@@ -83,6 +83,6 @@ class TomTomGeocoder:
                     )
                 )
         except (KeyError, TypeError, ValueError) as exc:
-            raise GeocodingError("Place search returned an unexpected response") from exc
+            raise GeocodingError("Place search isn't available right now") from exc
         self._cache.set(key, places, CACHE_TTL_S)
         return places

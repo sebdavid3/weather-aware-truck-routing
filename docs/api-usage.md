@@ -40,6 +40,7 @@ How the app stays inside the free limits of the APIs it calls. The limit that bi
 - **Open-Meteo 429:** the per-minute limit is waited out once (above). The hourly and daily limits are not retried: the API returns 503 with `Retry-After` set by the limit Open-Meteo names and a message saying which one it was.
 - **Timeout or 5xx:** one short retry. If that also fails, the request fails with 502, as in [weather-risk-decisions.md](weather-risk-decisions.md#missing-forecast).
 - A failed fetch never gets made-up data in its place.
+- Users see plain-language messages ("Truck routes aren't available right now") that never name a provider or a limit; the technical cause goes to the server log.
 - Tests use recorded responses and never call the API.
 
 ## Routing and geocoding

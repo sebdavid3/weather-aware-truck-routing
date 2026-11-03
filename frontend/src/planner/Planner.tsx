@@ -422,13 +422,13 @@ function Verdict({ plan }: { plan: TripPlan }) {
           ))
         ) : (
           <Box component="li" sx={{ py: 0.75, borderTop: `1px dashed ${color.rule}` }}>
-            It's the only route the router found.
+            It's the only truck route for this trip.
           </Box>
         )}
       </Box>
       {plan.routes.length === 2 && (
         <Typography sx={{ fontFamily: font.ticket, fontSize: '0.74rem', color: color.inkSoft, mt: 1 }}>
-          TomTom found only two distinct truck routes for this trip.
+          Only two distinct truck routes exist for this trip.
         </Typography>
       )}
     </Ticket>

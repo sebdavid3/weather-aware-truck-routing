@@ -27,7 +27,7 @@ const SAMPLE: { mile: number; eta: string; wind: string; rain: string; level: Le
 const STEPS = [
   [
     'Routes',
-    'Up to three truck routes from TomTom, in truck mode. A route that copies another is swapped for a detour.',
+    'Up to three routes planned for trucks, not cars. A route that copies another is swapped for a real alternative.',
   ],
   ['Checkpoints', 'One at the origin, one every 10, 25 or 50 miles, one at the destination.'],
   ['Arrival', 'Each checkpoint gets the time your truck reaches it, with rest stops when you include them.'],

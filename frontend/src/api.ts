@@ -121,19 +121,19 @@ async function request<T>(url: string, init: RequestInit): Promise<T> {
     throw new ApiError('Can’t reach the server. Check your connection and try again.')
   }
   const body = await response.json().catch(() => null)
-  if (!response.ok) throw new ApiError(errorMessage(response, body))
+  if (!response.ok) throw new ApiError(errorMessage(body))
   return body as T
 }
 
-function errorMessage(response: Response, body: unknown): string {
+function errorMessage(body: unknown): string {
   if (body && typeof body === 'object') {
-    // The API's own errors ("Open-Meteo minute limit reached; retry in 60 s").
+    // The API's own errors, already written for the person planning the trip.
     if ('detail' in body && typeof body.detail === 'string') return body.detail
     // DRF validation errors: { field: ["message"] } or { field: { nested: [...] } }.
     const messages = Object.values(body).flatMap(flatten)
     if (messages.length) return messages.join(' ')
   }
-  return `The server answered ${response.status}. Try again.`
+  return 'Something went wrong. Try again in a moment.'
 }
 
 function flatten(value: unknown): string[] {

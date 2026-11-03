@@ -8,7 +8,7 @@ import pytest
 
 from planner import planning, views
 from planner.geometry import Polyline
-from planner.routing import Route, RoutingRateLimited
+from planner.routing import Route, RoutingRateLimited, RoutingUnavailable
 from planner.tests.test_routing import as_route, line
 from planner.tests.test_weather import CALM, FakeOpenMeteo, make_client
 from planner.trip import TravelTimeProfile
@@ -155,6 +155,19 @@ def test_a_rate_limit_becomes_503_with_retry_after(client, backends):
 
     assert response.status_code == 503
     assert response["Retry-After"] == "7"
+
+
+def test_upstream_failures_reach_the_user_without_provider_details(client, backends):
+    backends["router"] = FakeRouter(
+        error=RoutingUnavailable("TomTom rejected the request (400): x")
+    )
+
+    response = client.post("/api/routes", trip(), content_type="application/json")
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": "Truck routes aren't available right now. Try again in a moment."
+    }
 
 
 def test_places_needs_three_characters(client):

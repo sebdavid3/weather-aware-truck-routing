@@ -14,7 +14,7 @@ type Props = { preview: TripPreview & { startedAt: number } }
 
 /**
  * Sits where the forecast slider will appear while the checkpoints are weighed: a countdown
- * when the free weather plan makes the trip wait, a working bar when it is quick.
+ * when the server says the trip will take a while, a working bar when it is quick.
  */
 export function Weighing({ preview }: Props) {
   const [now, setNow] = useState(() => Date.now())
@@ -99,7 +99,7 @@ export function Weighing({ preview }: Props) {
       </Box>
       <Typography sx={{ fontFamily: font.ticket, fontSize: '0.74rem', color: color.paperShade, mt: 1.25 }}>
         {long
-          ? `The free weather plan checks about 550 points a minute, so this trip takes a little longer. The routes are already on the map.`
+          ? 'Every stretch of these long routes is checked against the hourly forecast. The routes are already on the map.'
           : 'Checking the forecast at each checkpoint for the hour the truck gets there.'}
       </Typography>
     </Box>
