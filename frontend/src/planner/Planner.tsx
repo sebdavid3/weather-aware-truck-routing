@@ -5,12 +5,14 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchHeatmap, planTrip, type Heatmap, type LonLat, type TripPlan } from '../api'
 import { color, display, font } from '../brand'
 import { CheckpointList } from '../components/CheckpointList'
-import { ForecastSlider } from '../components/ForecastSlider'
+import { ForecastSlider, type SliderRange } from '../components/ForecastSlider'
+import { LayerToggles, type MapLayers } from '../components/LayerToggles'
 import { RouteCard } from '../components/RouteCard'
 import { TripMap } from '../map/TripMap'
 import { Stamp, TearRule, Ticket, Wordmark } from '../ticket/Ticket'
 import { TicketForm } from '../ticket/TicketForm'
 import { initialDraft, toTripInput, type TripDraft } from '../trip/draft'
+import { arrivalHour, progressAt } from '../trip/progress'
 
 type HeatState = { status: 'loading' | 'ready' | 'error'; data: Heatmap | null; error?: string }
 
@@ -30,6 +32,9 @@ export function Planner({ initialDraft: handoff, onHome }: Props) {
   const [hour, setHour] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [focus, setFocus] = useState<{ position: LonLat; key: number } | null>(null)
+  const [range, setRange] = useState<SliderRange>('trip')
+  const [places, setPlaces] = useState<{ origin: string; destination: string } | null>(null)
+  const [layers, setLayers] = useState<MapLayers>({ heatmap: true, checkpoints: true, otherRoutes: true })
   const requestRef = useRef<AbortController | null>(null)
   const draftRef = useRef(draft)
   useEffect(() => {
@@ -38,6 +43,10 @@ export function Planner({ initialDraft: handoff, onHome }: Props) {
 
   const submit = useCallback(async () => {
     const trip = toTripInput(draftRef.current)
+    const labels = {
+      origin: draftRef.current.origin!.label,
+      destination: draftRef.current.destination!.label,
+    }
     requestRef.current?.abort()
     const controller = new AbortController()
     requestRef.current = controller
@@ -47,8 +56,10 @@ export function Planner({ initialDraft: handoff, onHome }: Props) {
     try {
       const result = await planTrip(trip, controller.signal)
       setPlan(result)
+      setPlaces(labels)
       setSelected(result.recommended)
       setHour(0)
+      setRange('trip')
       // The heatmap reuses the routes the server just cached, so it comes right after.
       setHeat({ status: 'loading', data: null })
       fetchHeatmap(trip, controller.signal)
@@ -83,6 +94,16 @@ export function Planner({ initialDraft: handoff, onHome }: Props) {
     return route.checkpoints.filter((checkpoint) => Date.parse(checkpoint.eta) <= at).length
   }, [plan, selected, hour])
 
+  // The slider reads as the trip: each route's arrival hour, and where the selected truck is.
+  const arrivals = useMemo(
+    () => plan?.routes.map((r) => ({ name: r.name, hour: arrivalHour(r, plan.departure) })) ?? [],
+    [plan],
+  )
+  const tripHours = arrivals.length ? Math.max(...arrivals.map((arrival) => arrival.hour)) : 48
+  const selectedRoute = plan?.routes.find((r) => r.name === selected)
+  const progress =
+    plan && selectedRoute ? progressAt(selectedRoute, Date.parse(plan.departure) + hour * 3_600_000) : null
+
   return (
     <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, height: '100%' }}>
       <SidePanel
@@ -106,7 +127,10 @@ export function Planner({ initialDraft: handoff, onHome }: Props) {
           selectedRoute={selected}
           focus={focus}
           onSelectRoute={setSelected}
+          places={places}
+          layers={layers}
         />
+        {plan && <LayerToggles layers={layers} onChange={setLayers} />}
         {!plan && !planning && (
           <Box sx={{ position: 'absolute', top: 16, left: 16, maxWidth: 340 }}>
             <Ticket sx={{ pt: 2.5, pb: 2 }}>
@@ -122,7 +146,17 @@ export function Planner({ initialDraft: handoff, onHome }: Props) {
           <ForecastSlider
             departure={plan.departure}
             timeZone={plan.timezone}
-            hours={heat.data?.hours ?? 48}
+            forecastHours={heat.data?.hours ?? 48}
+            tripHours={tripHours}
+            range={range}
+            onRange={(next) => {
+              setRange(next)
+              if (next === 'trip') setHour((current) => Math.min(current, tripHours))
+            }}
+            arrivals={arrivals}
+            selected={selected}
+            progress={progress}
+            distanceMiles={selectedRoute?.distance_miles ?? 0}
             hour={hour}
             onHour={setHour}
             playing={playing}

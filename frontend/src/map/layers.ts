@@ -2,8 +2,9 @@
 
 import type { FeatureCollection } from 'geojson'
 import type { ExpressionSpecification, LayerSpecification } from 'maplibre-gl'
-import type { Heatmap, LonLat, RoutePlan, TripPlan } from '../api'
+import type { Heatmap, TripPlan } from '../api'
 import { LEVEL_COLOR } from '../risk'
+import { progressAt } from '../trip/progress'
 
 export const SOURCES = {
   heat: 'corridor-heat',
@@ -72,33 +73,15 @@ export function truckFeatures(plan: TripPlan, hour: number): Collection {
   const at = Date.parse(plan.departure) + hour * 3_600_000
   return {
     type: 'FeatureCollection',
-    features: plan.routes.map((route) => ({
-      type: 'Feature' as const,
-      properties: { route: route.name },
-      geometry: { type: 'Point' as const, coordinates: truckPosition(route, at) },
-    })),
+    features: plan.routes.map((route) => {
+      const progress = progressAt(route, at)
+      return {
+        type: 'Feature' as const,
+        properties: { route: route.name, arrived: progress.state === 'arrived' },
+        geometry: { type: 'Point' as const, coordinates: progress.position },
+      }
+    }),
   }
-}
-
-/** Where the truck is at a moment: between checkpoints by time, standing still during stops. */
-export function truckPosition(route: RoutePlan, at: number): LonLat {
-  const timeline: [number, LonLat][] = [
-    ...route.checkpoints.map((c): [number, LonLat] => [Date.parse(c.eta), c.position]),
-    ...route.stops.flatMap((s): [number, LonLat][] => [
-      [Date.parse(s.start), s.position],
-      [Date.parse(s.end), s.position],
-    ]),
-  ].sort((a, b) => a[0] - b[0])
-  if (at <= timeline[0][0]) return timeline[0][1]
-  for (let i = 1; i < timeline.length; i++) {
-    const [t1, p1] = timeline[i]
-    if (at <= t1) {
-      const [t0, p0] = timeline[i - 1]
-      const f = t1 === t0 ? 1 : (at - t0) / (t1 - t0)
-      return [p0[0] + (p1[0] - p0[0]) * f, p0[1] + (p1[1] - p0[1]) * f]
-    }
-  }
-  return timeline[timeline.length - 1][1]
 }
 
 const levelColor: ExpressionSpecification = [
@@ -268,8 +251,9 @@ export function layers(selectedRoute: string): LayerSpecification[] {
       paint: {
         'circle-color': style.truckColor,
         'circle-radius': style.truckRadius,
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 2,
+        // A truck that has arrived keeps a yellow ring at the destination.
+        'circle-stroke-color': ['case', ['get', 'arrived'], '#f2c230', '#ffffff'],
+        'circle-stroke-width': ['case', ['get', 'arrived'], 3, 2],
       },
     },
     {
