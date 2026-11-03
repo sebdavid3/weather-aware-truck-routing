@@ -2,7 +2,7 @@
 
 import threading
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -22,7 +22,7 @@ from planner.trip import TravelTimeProfile
 
 ORIGIN = (30.0, -97.0)
 DESTINATION = (31.0, -97.0)
-DEPART = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
+DEPART = datetime(2099, 11, 2, 12, 0, tzinfo=UTC)  # Far enough ahead never to be clamped to now.
 
 
 def line(lon: float, steps: int = 10) -> list[tuple[float, float]]:
@@ -105,7 +105,7 @@ def test_request_asks_for_a_commercial_truck_route_with_travel_times():
     assert params["travelMode"] == "truck"
     assert params["vehicleCommercial"] == "true"
     assert params["traffic"] == "false"
-    assert params["departAt"] == "2026-11-02T12:00:00Z"
+    assert params["departAt"] == "2099-11-02T12:00:00Z"
     assert params["maxAlternatives"] == "2"
     assert params.get_list("extendedRouteRepresentation") == ["distance", "travelTime"]
 
@@ -203,6 +203,19 @@ def test_a_second_request_for_the_same_trip_uses_the_cache():
     router.routes(ORIGIN, DESTINATION, DEPART)
     router.routes(ORIGIN, DESTINATION, DEPART)
 
+    assert len(fake.requests) == 1
+
+
+def test_a_past_departure_asks_for_now_and_caches_under_the_requested_time():
+    fake = FakeTomTom(ok(route_json(line(-97.0)), route_json(line(-96.0)), route_json(line(-98.0))))
+    router = make_router(fake)
+    five_minutes_ago = datetime.now(UTC) - timedelta(minutes=5)
+
+    router.routes(ORIGIN, DESTINATION, five_minutes_ago)
+    router.routes(ORIGIN, DESTINATION, five_minutes_ago)
+
+    sent = datetime.fromisoformat(fake.requests[0].url.params["departAt"].replace("Z", "+00:00"))
+    assert sent > datetime.now(UTC)
     assert len(fake.requests) == 1
 
 

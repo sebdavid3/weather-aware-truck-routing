@@ -133,10 +133,7 @@ def plan_heatmap(trip: TripRequest, router: TomTomRouter, weather: OpenMeteoClie
 
 
 def _routes(trip: TripRequest, router: TomTomRouter) -> list[Route]:
-    # TomTom rejects departures in the past; a departure up to 15 minutes ago
-    # is allowed, and routes for "now" are the closest it can give.
-    now = datetime.now(UTC).replace(second=0, microsecond=0) + timedelta(minutes=1)
-    return router.routes(trip.origin, trip.destination, max(trip.departure, now))
+    return router.routes(trip.origin, trip.destination, trip.departure)
 
 
 def _segments(route: Route, scored: list) -> list[dict]:

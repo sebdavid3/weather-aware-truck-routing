@@ -9,7 +9,7 @@ a point on each side of the main route.
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from django.core.cache import BaseCache
@@ -88,12 +88,20 @@ class TomTomRouter:
         self._retry_delay_s = retry_delay_s
 
     def routes(self, origin: LatLon, destination: LatLon, depart_at: datetime) -> list[Route]:
-        """Up to three distinct truck routes, best first. `depart_at` must not be in the past."""
+        """Up to three distinct truck routes, best first.
+
+        The cache is keyed on the requested departure, so the heatmap request
+        that follows a route request gets the same routes even a minute later.
+        """
         key = _cache_key(origin, destination, depart_at)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
 
+        # TomTom rejects departures in the past; a departure a few minutes ago
+        # is allowed, and routes for "now" are the closest TomTom can give.
+        now = datetime.now(UTC).replace(second=0, microsecond=0) + timedelta(minutes=1)
+        depart_at = max(depart_at, now)
         found = self._calculate([origin, destination], depart_at, MAX_ALTERNATIVES)
         if not found:
             raise NoRouteFound("TomTom returned no routes")
