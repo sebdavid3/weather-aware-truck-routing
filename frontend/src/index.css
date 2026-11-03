@@ -3,3 +3,52 @@ body,
 #root {
   height: 100%;
 }
+
+body {
+  background: #e4e6e7;
+  color: #22232a;
+  caret-color: #22232a;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: #1d1f21;
+  color: #f2c230;
+}
+
+:focus-visible {
+  outline: 2px solid #1d1f21;
+  outline-offset: 2px;
+}
+
+a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1d1f21 transparent;
+}
+
+/* Thermal paper: both ends perforated, drawn as rows of punched holes. */
+.ticket-paper {
+  position: relative;
+  background: #ffffff;
+  -webkit-mask:
+    radial-gradient(circle 5px at 8px 0, transparent 98%, #000) 0 0 / 16px 51% repeat-x,
+    radial-gradient(circle 5px at 8px 100%, transparent 98%, #000) 0 100% / 16px 51% repeat-x;
+  mask:
+    radial-gradient(circle 5px at 8px 0, transparent 98%, #000) 0 0 / 16px 51% repeat-x,
+    radial-gradient(circle 5px at 8px 100%, transparent 98%, #000) 0 100% / 16px 51% repeat-x;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -6,6 +6,8 @@ A React + Django app that helps a truck driver pick the safest of three routes. 
 
 ## What it does
 
+The app is branded **Haulcast**. The landing page at `/` explains it and holds the trip form; the planner at `/plan` shows the results.
+
 1. You enter an origin, a destination, a departure time and the load weight. You can also pick the checkpoint spacing (10, 25 or 50 miles) and include the federal hours-of-service rest breaks.
 2. TomTom returns up to three distinct truck routes.
 3. Each route gets checkpoints at its start, every N miles and at its end. Each checkpoint has an ETA from TomTom's travel times, plus rest stops if you included them.

@@ -198,7 +198,8 @@ function showStop(map: MapLibreMap, event: MapLayerMouseEvent, plan: TripPlan | 
 function popup(map: MapLibreMap, at: LonLat, lines: string[]) {
   // Built from text nodes, so nothing from the API is ever parsed as HTML.
   const content = document.createElement('div')
-  content.style.font = '13px/1.45 system-ui, sans-serif'
+  content.style.font = '12.5px/1.5 "Overpass Mono", ui-monospace, monospace'
+  content.style.color = '#22232a'
   lines.forEach((text, index) => {
     const line = document.createElement('div')
     line.textContent = text

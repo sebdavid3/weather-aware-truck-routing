@@ -8,6 +8,7 @@ import Slider from '@mui/material/Slider'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { useEffect, useRef } from 'react'
+import { color, font } from '../brand'
 import { formatTime } from '../format'
 import { LEVEL_COLOR, LEVEL_LABEL, LEVELS } from '../risk'
 
@@ -65,7 +66,7 @@ export function ForecastSlider({
 
   return (
     <Paper
-      elevation={3}
+      elevation={0}
       sx={{
         position: 'absolute',
         left: 16,
@@ -75,6 +76,11 @@ export function ForecastSlider({
         maxWidth: 720,
         px: 2,
         py: 1.25,
+        // The scale house's readout: asphalt panel, signal-yellow figures.
+        bgcolor: color.asphalt,
+        color: color.paper,
+        borderTop: `4px solid ${color.signal}`,
+        boxShadow: '0 12px 28px -10px rgba(29,31,33,.6)',
       }}
     >
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -90,19 +96,30 @@ export function ForecastSlider({
             onPlaying(!playing)
           }}
           disabled={status !== 'ready'}
-          color="primary"
+          sx={{ color: color.signal, '&.Mui-disabled': { color: color.inkFaint } }}
         >
           {playing ? <PauseIcon /> : <PlayArrowIcon />}
         </IconButton>
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Stack direction="row" sx={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+            <Typography
+              sx={{
+                fontFamily: font.ticket,
+                fontWeight: 700,
+                fontSize: '0.95rem',
+                color: color.signal,
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
               +{Math.floor(hour)} h · {formatTime(at, timeZone)}
             </Typography>
-            <Typography variant="caption" color={status === 'error' ? 'error' : 'text.secondary'}>
+            <Typography
+              variant="caption"
+              sx={{ fontFamily: font.ticket, color: status === 'error' ? '#ffb4ad' : color.paperShade }}
+            >
               {status === 'loading' && (
                 <>
-                  <CircularProgress size={10} sx={{ mr: 0.75 }} />
+                  <CircularProgress size={10} sx={{ mr: 0.75, color: color.signal }} />
                   Loading corridor forecast…
                 </>
               )}
@@ -125,7 +142,15 @@ export function ForecastSlider({
             sx={{
               mt: 0.5,
               mb: -0.5,
-              '& .MuiSlider-markLabel': { fontSize: '0.68rem' },
+              color: color.signal,
+              '& .MuiSlider-rail': { bgcolor: color.paperShade, opacity: 0.35 },
+              '& .MuiSlider-mark': { bgcolor: color.paperShade },
+              '& .MuiSlider-markLabel': {
+                fontFamily: font.ticket,
+                fontSize: '0.66rem',
+                color: color.paperShade,
+              },
+              '& .MuiSlider-thumb': { boxShadow: `0 0 0 3px ${color.asphalt}` },
               // MUI eases the thumb and track over 150 ms. Playback moves them every frame, which
               // restarts that easing before it gets anywhere, so the thumb froze near its start.
               '& .MuiSlider-thumb, & .MuiSlider-track': { transition: 'none' },
@@ -136,8 +161,10 @@ export function ForecastSlider({
       <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'center', mt: 1.5, flexWrap: 'wrap' }}>
         {LEVELS.map((level) => (
           <Stack key={level} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-            <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: LEVEL_COLOR[level] }} />
-            <Typography variant="caption">{LEVEL_LABEL[level]}</Typography>
+            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: LEVEL_COLOR[level] }} />
+            <Typography variant="caption" sx={{ fontFamily: font.ticket, color: color.paperShade }}>
+              {LEVEL_LABEL[level]}
+            </Typography>
           </Stack>
         ))}
       </Stack>

@@ -172,7 +172,7 @@ export function selectionStyle(name: string) {
     lineWidth: pick(5.5, 3),
     lineOpacity: pick(1, 0.45),
     pointOpacity: pick(1, 0.35),
-    truckColor: pick('#1f4e79', '#5b6573'),
+    truckColor: pick('#1d1f21', '#575a63'),
     truckRadius: pick(10, 8),
   }
 }
@@ -283,7 +283,7 @@ export function layers(selectedRoute: string): LayerSpecification[] {
         'text-allow-overlap': true,
         'text-ignore-placement': true,
       },
-      paint: { 'text-color': '#ffffff' },
+      paint: { 'text-color': '#f2c230' },
     },
   ]
 }

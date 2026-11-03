@@ -3,12 +3,13 @@ import CircularProgress from '@mui/material/CircularProgress'
 import TextField from '@mui/material/TextField'
 import { useEffect, useState } from 'react'
 import { searchPlaces, type Place } from '../api'
+import { font } from '../brand'
 
 const DEBOUNCE_MS = 300
 const MIN_QUERY = 3
 
 type Props = {
-  label: string
+  label: string // Read by screen readers; the ticket box prints its own visible label.
   value: Place | null
   onChange: (place: Place | null) => void
   error?: string
@@ -62,20 +63,27 @@ export function PlaceField({ label, value, onChange, error }: Props) {
       renderInput={(params) => (
         <TextField
           {...params}
-          label={label}
+          variant="standard"
+          placeholder="City, address or place"
           error={Boolean(error || searchError)}
           helperText={error ?? searchError}
           slotProps={{
             ...params.slotProps,
+            htmlInput: { ...params.slotProps.htmlInput, 'aria-label': label },
             input: {
               ...params.slotProps.input,
+              disableUnderline: true,
               endAdornment: (
                 <>
-                  {loading && <CircularProgress color="inherit" size={16} />}
+                  {loading && <CircularProgress color="inherit" size={14} />}
                   {params.slotProps.input.endAdornment}
                 </>
               ),
             },
+          }}
+          sx={{
+            '& .MuiInputBase-root': { fontFamily: font.ticket, fontWeight: 600, fontSize: '1.02rem' },
+            '& .MuiFormHelperText-root': { fontFamily: font.ticket, mx: 0 },
           }}
         />
       )}
