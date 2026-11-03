@@ -4,8 +4,10 @@ docs/api-usage.md explains the quota strategy (cells, cache, batches, errors)
 and docs/weather-risk-decisions.md which variables and hours a checkpoint uses.
 """
 
-from collections import defaultdict
-from collections.abc import Iterable, Mapping
+import threading
+import time
+from collections import defaultdict, deque
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -22,6 +24,10 @@ OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 CELLS_PER_DEGREE = 20  # 0.05° cells, about 5.5 km on a side.
 MAX_CELLS_PER_REQUEST = 300  # Keeps the GET URL well under common length limits.
 PARALLEL_REQUESTS = 2
+# Open-Meteo allows 600 locations a minute per IP; requests are paced to stay under this.
+MINUTE_BUDGET = 550
+WINDOW_S = 60.0
+SECONDS_PER_REQUEST = 2.0  # Rough time for one batch to come back, for wait estimates.
 CACHE_TTL_S = 3600  # The models update about hourly.
 REQUEST_TIMEOUT_S = 10.0
 RETRY_DELAY_S = 1.0
@@ -146,19 +152,104 @@ class Forecast:
         return values
 
 
+class MinuteBudget:
+    """Locations requested from Open-Meteo in the last minute, shared by every request.
+
+    A trip that needs more than a minute's budget waits for it to free up instead of
+    failing: the server runs one process, so this sees all of its own traffic.
+    """
+
+    def __init__(
+        self,
+        limit: int = MINUTE_BUDGET,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ):
+        self._limit = limit
+        self._clock = clock
+        self._sleep = sleep
+        self._spent: deque[tuple[float, int]] = deque()
+        self._lock = threading.Lock()
+
+    def take(self, most: int) -> int:
+        """Grant up to `most` locations, waiting until at least a useful batch fits.
+
+        Batches shrink to what the minute has left, so a long trip uses each minute fully
+        instead of waiting for room for a whole batch.
+        """
+        while True:
+            with self._lock:
+                now = self._clock()
+                granted, wait = _grant(self._spent, now, most, self._limit)
+                if granted:
+                    self._spent.append((now, granted))
+                    return granted
+            self._sleep(wait)
+
+    def estimate(self, count: int, batch: int = MAX_CELLS_PER_REQUEST) -> float:
+        """Seconds until `count` locations, fetched in batches, would all have been requested."""
+        with self._lock:
+            now = self._clock()
+            spent = deque(self._spent)
+        at = now
+        while count > 0:
+            granted, wait = _grant(spent, at, min(count, batch), self._limit)
+            if granted:
+                spent.append((at, granted))
+                count -= granted
+            else:
+                at += wait
+        return at - now
+
+
+# Smallest batch worth sending while waiting for more of the minute to free up.
+MIN_BATCH = 50
+
+
+def _grant(spent: deque[tuple[float, int]], now: float, most: int, limit: int) -> tuple[int, float]:
+    """How many of `most` locations fit now, or how long until a useful batch does."""
+    while spent and spent[0][0] <= now - WINDOW_S:
+        spent.popleft()
+    room = limit - sum(size for _, size in spent)
+    if room >= min(most, MIN_BATCH):
+        return min(most, room), 0.0
+    return 0, spent[0][0] + WINDOW_S - now if spent else 0.0
+
+
 class OpenMeteoClient:
     def __init__(
         self,
         http: httpx.Client | None = None,
         cache: BaseCache = default_cache,
         retry_delay_s: float = RETRY_DELAY_S,
+        budget: MinuteBudget | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ):
         self._http = http or httpx.Client(timeout=REQUEST_TIMEOUT_S)
         self._cache = cache
         self._retry_delay_s = retry_delay_s
+        self._budget = budget or MinuteBudget(sleep=sleep)
+        self._sleep = sleep
 
     def forecast(self, points: Iterable[tuple[Cell, datetime]]) -> Forecast:
         """Get what's needed to sample each (cell, time) point, from the cache first."""
+        blocks, missing = self._lookup(points)
+        if missing:
+            blocks.update(self._fetch(missing))
+        return Forecast(_hours_from_blocks(blocks))
+
+    def pending(self, points: Iterable[tuple[Cell, datetime]]) -> tuple[int, float]:
+        """How many cells a forecast for these points would fetch, and about how long it takes."""
+        _, missing = self._lookup(points)
+        cells = len({cell for cell, _ in missing})
+        if not cells:
+            return 0, 0.0
+        batches = (cells + MAX_CELLS_PER_REQUEST - 1) // MAX_CELLS_PER_REQUEST
+        return cells, self._budget.estimate(cells) + batches * SECONDS_PER_REQUEST
+
+    def _lookup(
+        self, points: Iterable[tuple[Cell, datetime]]
+    ) -> tuple[dict[tuple[Cell, date], DayBlock], list[tuple[Cell, date]]]:
         days_by_cell: dict[Cell, set[date]] = defaultdict(set)
         for cell, at in points:
             start, end = hour_window(at)
@@ -171,10 +262,7 @@ class OpenMeteoClient:
         }
         cached = self._cache.get_many(keys.values())
         blocks = {pair: cached[key] for pair, key in keys.items() if key in cached}
-        missing = [pair for pair in keys if pair not in blocks]
-        if missing:
-            blocks.update(self._fetch(missing))
-        return Forecast(_hours_from_blocks(blocks))
+        return blocks, [pair for pair in keys if pair not in blocks]
 
     def _fetch(self, missing: list[tuple[Cell, date]]) -> dict[tuple[Cell, date], DayBlock]:
         # Open-Meteo applies one date range to every coordinate in a request,
@@ -185,16 +273,16 @@ class OpenMeteoClient:
         cells_by_range: dict[tuple[date, date], list[Cell]] = defaultdict(list)
         for cell, days in days_by_cell.items():
             cells_by_range[(min(days), max(days))].append(cell)
-        requests = [
-            (cells[i : i + MAX_CELLS_PER_REQUEST], first, last)
-            for (first, last), cells in cells_by_range.items()
-            for i in range(0, len(cells), MAX_CELLS_PER_REQUEST)
-        ]
-
         blocks: dict[tuple[Cell, date], DayBlock] = {}
         error: WeatherError | None = None
         with ThreadPoolExecutor(max_workers=PARALLEL_REQUESTS) as pool:
-            futures = [pool.submit(self._request, *request) for request in requests]
+            futures = []
+            for (first, last), cells in cells_by_range.items():
+                while cells:
+                    # Waits here when the minute's budget is spent; batches take what is left.
+                    size = self._budget.take(min(len(cells), MAX_CELLS_PER_REQUEST))
+                    batch, cells = cells[:size], cells[size:]
+                    futures.append(pool.submit(self._request_paced, batch, first, last))
             for future in as_completed(futures):
                 try:
                     fetched = future.result()
@@ -210,6 +298,22 @@ class OpenMeteoClient:
         if error:
             raise error
         return blocks
+
+    def _request_paced(
+        self, cells: list[Cell], first: date, last: date
+    ) -> dict[tuple[Cell, date], DayBlock]:
+        """A batch, waited out once when Open-Meteo still says the minute's limit is reached.
+
+        That happens when other traffic from the same IP used part of the minute. The hourly
+        and daily limits fail at once: waiting them out would leave the request hanging.
+        """
+        try:
+            return self._request(cells, first, last)
+        except WeatherRateLimited as exc:
+            if exc.limit != "minute":
+                raise
+            self._sleep(exc.retry_after_s)
+            return self._request(cells, first, last)
 
     def _request(
         self, cells: list[Cell], first: date, last: date

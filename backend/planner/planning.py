@@ -16,7 +16,10 @@ from planner.routing import Route, TomTomRouter
 from planner.trip import arrival, place_checkpoints, planned_stops, timezone_at
 from planner.weather import Cell, OpenMeteoClient
 
-MAX_CHECKPOINT_CELLS = 400  # docs/api-usage.md: the per-search cap.
+# Enough for three coast-to-coast routes at 10-mile checkpoints (about 850 cells). Searches
+# over Open-Meteo's per-minute budget wait for it rather than fail (docs/api-usage.md).
+MAX_CHECKPOINT_CELLS = 1200
+PREVIEW_TOLERANCE_M = 120  # The preview line only has to show where each route goes.
 HEATMAP_HOURS = 48
 DISPLAY_TOLERANCE_M = 30  # Map lines lose no visible detail at this simplification.
 ROUTE_NAMES = "ABCDE"
@@ -36,29 +39,39 @@ class TripRequest:
     rest_breaks: bool
 
 
-def plan_trip(trip: TripRequest, router: TomTomRouter, weather: OpenMeteoClient) -> dict:
-    routes = _routes(trip, router)
-    plans = []
-    for name, route in zip(ROUTE_NAMES, routes, strict=False):
-        stops = planned_stops(route.drive_time_s) if trip.rest_breaks else []
-        checkpoints = place_checkpoints(route.polyline, trip.interval_miles, route.profile)
-        timed = [
-            (
-                checkpoint,
-                Cell.containing(*checkpoint.position),
-                arrival(trip.departure, checkpoint.drive_time_s, stops),
-            )
-            for checkpoint in checkpoints
-        ]
-        plans.append((name, route, stops, timed))
+def plan_preview(trip: TripRequest, router: TomTomRouter, weather: OpenMeteoClient) -> dict:
+    """The routes before their weather: lines to draw, and how long the forecast will take.
 
-    cells = {cell for *_, timed in plans for _, cell, _ in timed}
-    if len(cells) > MAX_CHECKPOINT_CELLS:
-        raise TooManyCheckpoints(
-            f"This trip needs {len(cells)} weather checkpoints, over the limit of "
-            f"{MAX_CHECKPOINT_CELLS}. Choose a longer checkpoint interval."
-        )
-    forecast = weather.forecast([(cell, eta) for *_, timed in plans for _, cell, eta in timed])
+    The planner shows this within seconds, so a long trip's forecast wait has something on
+    screen. The routes are cached, so the full plan that follows reuses them.
+    """
+    plans = _timed_checkpoints(trip, _routes(trip, router))
+    points = _check_cap(plans)
+    to_fetch, seconds = weather.pending(points)
+    return {
+        "departure": _iso(trip.departure),
+        "timezone": timezone_at(trip.origin).key,
+        "checkpoints": len({cell for cell, _ in points}),
+        "to_fetch": to_fetch,
+        "wait_seconds": round(seconds),
+        "routes": [
+            {
+                "name": name,
+                "distance_miles": round(route.polyline.length_m / METERS_PER_MILE),
+                "drive_minutes": round(route.drive_time_s / 60),
+                "line": [
+                    _lon_lat(route.polyline.points[i])
+                    for i in simplify(route.polyline.points, PREVIEW_TOLERANCE_M)
+                ],
+            }
+            for name, route, _, _ in plans
+        ],
+    }
+
+
+def plan_trip(trip: TripRequest, router: TomTomRouter, weather: OpenMeteoClient) -> dict:
+    plans = _timed_checkpoints(trip, _routes(trip, router))
+    forecast = weather.forecast(_check_cap(plans))
 
     results, summaries = [], []
     for name, route, stops, timed in plans:
@@ -130,6 +143,36 @@ def plan_heatmap(trip: TripRequest, router: TomTomRouter, weather: OpenMeteoClie
             for cell in cells
         ],
     }
+
+
+def _timed_checkpoints(trip: TripRequest, routes: list[Route]) -> list[tuple]:
+    """Each route with its stops and its checkpoints, each with a weather cell and an ETA."""
+    plans = []
+    for name, route in zip(ROUTE_NAMES, routes, strict=False):
+        stops = planned_stops(route.drive_time_s) if trip.rest_breaks else []
+        checkpoints = place_checkpoints(route.polyline, trip.interval_miles, route.profile)
+        timed = [
+            (
+                checkpoint,
+                Cell.containing(*checkpoint.position),
+                arrival(trip.departure, checkpoint.drive_time_s, stops),
+            )
+            for checkpoint in checkpoints
+        ]
+        plans.append((name, route, stops, timed))
+    return plans
+
+
+def _check_cap(plans: list[tuple]) -> list[tuple[Cell, datetime]]:
+    """The (cell, ETA) points to forecast, refusing a trip over the per-search cap."""
+    points = [(cell, eta) for *_, timed in plans for _, cell, eta in timed]
+    cells = {cell for cell, _ in points}
+    if len(cells) > MAX_CHECKPOINT_CELLS:
+        raise TooManyCheckpoints(
+            f"This trip needs {len(cells)} weather checkpoints, over the limit of "
+            f"{MAX_CHECKPOINT_CELLS}. Choose a longer checkpoint interval."
+        )
+    return points
 
 
 def _routes(trip: TripRequest, router: TomTomRouter) -> list[Route]:

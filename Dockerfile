@@ -22,4 +22,4 @@ COPY --from=frontend /app/frontend/dist /app/frontend/dist
 EXPOSE 8000
 # One process keeps the in-memory cache shared by every request; threads
 # handle concurrency while requests wait on the weather and routing APIs.
-CMD ["sh", "-c", "uv run --no-sync gunicorn config.wsgi --workers 1 --threads 8 --timeout 90 --bind 0.0.0.0:${PORT:-8000}"]
+CMD ["sh", "-c", "uv run --no-sync gunicorn config.wsgi --workers 1 --threads 8 --timeout 150 --bind 0.0.0.0:${PORT:-8000}"]

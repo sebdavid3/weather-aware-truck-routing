@@ -7,7 +7,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from planner.geocoding import GeocodingError, TomTomGeocoder
-from planner.planning import TooManyCheckpoints, plan_heatmap, plan_trip
+from planner.planning import TooManyCheckpoints, plan_heatmap, plan_preview, plan_trip
 from planner.routing import NoRouteFound, RoutingRateLimited, RoutingUnavailable, TomTomRouter
 from planner.serializers import TripSerializer
 from planner.weather import OpenMeteoClient, WeatherRateLimited, WeatherUnavailable
@@ -50,6 +50,11 @@ def places(request: Request) -> Response:
 @api_view(["POST"])
 def routes(request: Request) -> Response:
     return _plan(request, plan_trip)
+
+
+@api_view(["POST"])
+def route_preview(request: Request) -> Response:
+    return _plan(request, plan_preview)
 
 
 @api_view(["POST"])

@@ -18,6 +18,7 @@ from planner.weather import (
     VARIABLES,
     Cell,
     HourValues,
+    MinuteBudget,
     OpenMeteoClient,
     WeatherRateLimited,
     WeatherUnavailable,
@@ -84,11 +85,31 @@ class FakeOpenMeteo:
         return sorted(len(r.url.params["latitude"].split(",")) for r in self.requests)
 
 
-def make_client(fake: FakeOpenMeteo) -> OpenMeteoClient:
+class FakeClock:
+    """Time that only moves when the code under test sleeps."""
+
+    def __init__(self):
+        self.now = 1000.0
+        self.slept: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+def make_client(
+    fake: FakeOpenMeteo, clock: FakeClock | None = None, limit: int = 550
+) -> OpenMeteoClient:
+    clock = clock or FakeClock()
     return OpenMeteoClient(
         http=httpx.Client(transport=httpx.MockTransport(fake)),
         cache=LocMemCache(f"weather-test-{uuid.uuid4()}", {}),
         retry_delay_s=0,
+        budget=MinuteBudget(limit=limit, clock=clock, sleep=clock.sleep),
+        sleep=clock.sleep,
     )
 
 
@@ -290,15 +311,17 @@ def test_successful_batches_are_cached_even_when_another_fails():
 # Errors
 
 
+MINUTELY = "Minutely API request limit exceeded. Please try again in one minute."
+
+
 @pytest.mark.parametrize(
     ("reason", "limit", "retry_after_s"),
     [
-        ("Minutely API request limit exceeded. Please try again in one minute.", "minute", 60),
         ("Hourly API request limit exceeded. Please try again in the next hour.", "hour", 3600),
         ("Daily API request limit exceeded. Please try again tomorrow.", "day", 86400),
     ],
 )
-def test_a_rate_limit_is_reported_and_not_retried(reason, limit, retry_after_s):
+def test_an_hourly_or_daily_limit_is_reported_and_not_retried(reason, limit, retry_after_s):
     fake = FakeOpenMeteo()
     fake.failures.append(httpx.Response(429, json={"error": True, "reason": reason}))
 
@@ -307,6 +330,76 @@ def test_a_rate_limit_is_reported_and_not_retried(reason, limit, retry_after_s):
 
     assert (raised.value.limit, raised.value.retry_after_s) == (limit, retry_after_s)
     assert len(fake.requests) == 1
+
+
+def test_a_minute_limit_is_waited_out_once():
+    fake = FakeOpenMeteo()
+    fake.failures.append(httpx.Response(429, json={"error": True, "reason": MINUTELY}))
+    clock = FakeClock()
+
+    make_client(fake, clock).forecast([(DALLAS, utc("2026-10-31T10:20"))])
+
+    assert clock.slept == [60]
+    assert len(fake.requests) == 2
+
+
+def test_a_minute_limit_that_persists_is_reported():
+    fake = FakeOpenMeteo()
+    fake.failures.extend([httpx.Response(429, json={"reason": MINUTELY})] * 2)
+
+    with pytest.raises(WeatherRateLimited) as raised:
+        make_client(fake).forecast([(DALLAS, utc("2026-10-31T10:20"))])
+
+    assert raised.value.limit == "minute"
+
+
+# Pacing
+
+
+def test_a_trip_over_the_minute_budget_waits_instead_of_failing():
+    fake = FakeOpenMeteo()
+    clock = FakeClock()
+    eta = utc("2026-10-31T10:20")
+    cells = [Cell(600 + i, -1900) for i in range(700)]
+
+    forecast = make_client(fake, clock).forecast([(cell, eta) for cell in cells])
+
+    # The first minute takes 300 + 250, the rest waits for the minute to pass.
+    assert fake.coordinate_counts() == [150, 250, 300]
+    assert sum(clock.slept) == pytest.approx(60)
+    assert forecast.sample(cells[-1], eta).conditions.wind_mph == 5.0
+
+
+def test_pending_counts_uncached_cells_and_estimates_the_wait():
+    fake = FakeOpenMeteo()
+    clock = FakeClock()
+    client = make_client(fake, clock)
+    eta = utc("2026-10-31T10:20")
+    small = [(Cell(600 + i, -1900), eta) for i in range(10)]
+    large = [(Cell(800 + i, -1900), eta) for i in range(700)]
+
+    assert client.pending(small)[0] == 10
+    assert client.pending(small)[1] < 10
+    client.forecast(small)
+    assert client.pending(small) == (0, 0.0)
+    cells, seconds = client.pending(large)
+    assert cells == 700
+    assert seconds > 60
+    assert fake.requests and len(fake.requests) == 1  # pending() never calls the API.
+
+
+def test_the_budget_frees_up_as_the_minute_passes():
+    clock = FakeClock()
+    budget = MinuteBudget(limit=550, clock=clock, sleep=clock.sleep)
+
+    assert budget.take(300) == 300
+    clock.now += 30
+    assert budget.take(200) == 200
+    assert budget.take(100) == 50  # Only 50 of the minute are left: the batch shrinks to fit.
+    assert clock.slept == []
+    assert budget.take(100) == 100  # Nothing left: waits until the first 300 are a minute old.
+
+    assert clock.slept == [pytest.approx(30)]
 
 
 @pytest.mark.parametrize(

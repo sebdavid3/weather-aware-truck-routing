@@ -91,6 +91,18 @@ def test_rest_breaks_add_stops_to_long_routes(client, backends):
     assert route["duration_minutes"] == 12 * 60 + 30 + 10 * 60
 
 
+def test_preview_shows_routes_and_the_forecast_work_ahead(client, backends):
+    response = client.post("/api/routes/preview", trip(), content_type="application/json")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert [route["name"] for route in body["routes"]] == ["A", "B"]
+    assert all(len(route["line"]) >= 2 for route in body["routes"])
+    assert body["checkpoints"] == body["to_fetch"] > 0
+    assert body["wait_seconds"] < 10
+    assert backends["weather"].requests == []  # The preview never fetches weather.
+
+
 def test_heatmap_has_49_hours_for_each_corridor_point(client, backends):
     response = client.post("/api/heatmap", trip(), content_type="application/json")
 
